@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bolão da Copa 2026</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;800&family=Archivo+Black&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --verde:#0a7d3c; --verde-esc:#054d25; --verde-claro:#13a352;
+    --campo:#0c6b35; --linha:rgba(255,255,255,.18);
+    --amarelo:#ffd200; --azul:#1b3b6f;
+    --bg:#0b1f15; --card:#10261a; --card2:#16352492;
+    --txt:#eef6f0; --txt2:#9fc4ad; --borda:rgba(255,255,255,.10);
+    --ok:#13a352; --erro:#e24b4a;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    font-family:'Archivo',system-ui,sans-serif;background:var(--bg);color:var(--txt);
+    min-height:100vh;line-height:1.5;
+    background-image:radial-gradient(circle at 20% 0%,#13402480,transparent 50%),radial-gradient(circle at 80% 100%,#0a3d6e40,transparent 50%);
+  }
+  h1,h2,h3{font-weight:800;letter-spacing:-.02em}
+  .black{font-family:'Archivo Black',sans-serif}
+  button{font-family:inherit;cursor:pointer;border:none}
+  input,select{font-family:inherit}
+  .wrap{max-width:760px;margin:0 auto;padding:16px}
+  .hidden{display:none!important}
+
+  /* ---------- LOGIN ---------- */
+  #tela-login{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+  .login-card{
+    background:var(--card);border:1px solid var(--borda);border-radius:20px;
+    padding:36px 28px;width:100%;max-width:380px;
+    box-shadow:0 20px 60px rgba(0,0,0,.4);
+  }
+  .crest{
+    width:72px;height:72px;margin:0 auto 16px;border-radius:18px;
+    background:linear-gradient(135deg,var(--verde-claro),var(--verde-esc));
+    display:flex;align-items:center;justify-content:center;font-size:38px;
+    box-shadow:0 8px 24px rgba(10,125,60,.4);
+  }
+  .login-card h1{text-align:center;font-size:26px;margin-bottom:4px}
+  .login-card .sub{text-align:center;color:var(--txt2);font-size:14px;margin-bottom:24px}
+  label{display:block;font-size:13px;color:var(--txt2);margin:14px 0 6px;font-weight:600}
+  .inp{
+    width:100%;padding:13px 14px;background:#0b1c13;border:1px solid var(--borda);
+    border-radius:12px;color:var(--txt);font-size:15px;transition:border .15s;
+  }
+  .inp:focus{outline:none;border-color:var(--verde-claro)}
+  .btn{
+    width:100%;padding:14px;border-radius:12px;font-weight:800;font-size:15px;
+    background:var(--verde-claro);color:#04230f;margin-top:20px;transition:transform .1s,background .15s;
+  }
+  .btn:hover{background:var(--verde)}
+  .btn:active{transform:scale(.98)}
+  .btn-sec{background:transparent;color:var(--txt2);border:1px solid var(--borda);margin-top:10px}
+  .btn-sec:hover{background:#ffffff10;color:var(--txt)}
+  .toggle-link{text-align:center;margin-top:18px;font-size:14px;color:var(--txt2)}
+  .toggle-link a{color:var(--verde-claro);font-weight:600;cursor:pointer;text-decoration:none}
+  .msg{padding:11px 14px;border-radius:10px;font-size:14px;margin-top:14px;display:none}
+  .msg.erro{background:#e24b4a22;border:1px solid #e24b4a55;color:#ffb4b3;display:block}
+  .msg.ok{background:#13a35222;border:1px solid #13a35255;color:#9fe7bf;display:block}
+
+  /* ---------- APP / NAV ---------- */
+  header.topo{
+    position:sticky;top:0;z-index:50;background:#0b1f15ee;backdrop-filter:blur(10px);
+    border-bottom:1px solid var(--borda);
+  }
+  .topo-in{max-width:760px;margin:0 auto;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px}
+  .topo-logo{display:flex;align-items:center;gap:10px;font-weight:800;font-size:17px}
+  .topo-logo .mini{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,var(--verde-claro),var(--verde-esc));display:flex;align-items:center;justify-content:center;font-size:18px}
+  .topo-user{display:flex;align-items:center;gap:10px;font-size:14px;color:var(--txt2)}
+  .badge-mod{background:var(--amarelo);color:#3a2e00;font-size:10px;font-weight:800;padding:3px 7px;border-radius:6px;text-transform:uppercase}
+  .sair{background:#ffffff10;color:var(--txt2);padding:7px 12px;border-radius:9px;font-size:13px;font-weight:600}
+  .sair:hover{background:#ffffff1c;color:var(--txt)}
+
+  nav.tabs{display:flex;gap:4px;max-width:760px;margin:0 auto;padding:10px 16px 0;overflow-x:auto}
+  nav.tabs button{
+    padding:10px 15px;background:transparent;color:var(--txt2);font-weight:600;font-size:14px;
+    border-radius:10px 10px 0 0;white-space:nowrap;border-bottom:3px solid transparent;
+  }
+  nav.tabs button.on{color:var(--txt);border-bottom-color:var(--verde-claro);background:#ffffff08}
+
+  /* ---------- CARDS / JOGOS ---------- */
+  .filtros{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:16px 0 10px}
+  .filtros .lbl{font-size:13px;color:var(--txt2);font-weight:600;margin-right:2px}
+  .chip{padding:6px 12px;background:#ffffff0c;color:var(--txt2);border-radius:20px;font-size:13px;font-weight:600;border:1px solid transparent}
+  .chip.on{background:var(--verde-claro);color:#04230f;border-color:var(--verde-claro)}
+  .dia-sep{font-size:13px;font-weight:800;color:var(--amarelo);margin:18px 0 8px;text-transform:uppercase;letter-spacing:.03em}
+
+  .jogo{
+    background:var(--card);border:1px solid var(--borda);border-radius:14px;
+    padding:13px 15px;margin-bottom:9px;
+  }
+  .jogo-topo{display:flex;justify-content:space-between;align-items:center;margin-bottom:9px}
+  .jogo-meta{font-size:12px;color:var(--txt2);display:flex;align-items:center;gap:7px}
+  .grp-tag{background:#ffffff12;padding:2px 7px;border-radius:6px;font-weight:700;font-size:11px}
+  .estado{font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px}
+  .estado.aberto{background:#13a35222;color:#7fe3a6}
+  .estado.fechado{background:#ffffff10;color:var(--txt2)}
+  .confronto{display:flex;align-items:center;gap:8px}
+  .time{flex:1;display:flex;align-items:center;gap:7px;font-weight:600;font-size:15px}
+  .time.dir{justify-content:flex-end;text-align:right}
+  .time.br{color:var(--amarelo)}
+  .placar-in{
+    width:42px;height:42px;text-align:center;font-size:18px;font-weight:800;
+    background:#0b1c13;border:1px solid var(--borda);border-radius:10px;color:var(--txt);
+  }
+  .placar-in:focus{outline:none;border-color:var(--verde-claro)}
+  .placar-in:disabled{opacity:.55;background:#0a160e}
+  .x{color:var(--txt2);font-weight:700}
+  .resultado-real{font-size:12px;color:var(--amarelo);font-weight:700;margin-top:7px;text-align:center}
+  .pts-tag{font-size:12px;font-weight:800;padding:3px 9px;border-radius:7px;margin-left:auto}
+  .pts-15{background:#13a35233;color:#7fe3a6}
+  .pts-5{background:#ffd20022;color:#ffe071}
+  .pts-0{background:#ffffff0c;color:var(--txt2)}
+
+  .salvo-flash{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--verde-claro);color:#04230f;padding:11px 20px;border-radius:30px;font-weight:700;font-size:14px;box-shadow:0 8px 24px rgba(0,0,0,.4);opacity:0;transition:opacity .3s,transform .3s;pointer-events:none;z-index:100}
+  .salvo-flash.show{opacity:1;transform:translateX(-50%) translateY(-4px)}
+
+  /* especiais */
+  .esp-card{background:linear-gradient(135deg,#16352e,#10261a);border:1px solid var(--borda);border-radius:16px;padding:18px;margin-bottom:14px}
+  .esp-card h3{font-size:16px;margin-bottom:3px;display:flex;align-items:center;gap:8px}
+  .esp-card .hint{font-size:13px;color:var(--txt2);margin-bottom:14px}
+  .esp-row{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+  .esp-row label{margin:0;min-width:78px;color:var(--txt)}
+  .esp-row .inp{flex:1;margin:0}
+
+  /* ranking */
+  .rank-row{display:flex;align-items:center;gap:13px;padding:14px;background:var(--card);border:1px solid var(--borda);border-radius:13px;margin-bottom:8px}
+  .rank-row.eu{border-color:var(--verde-claro);background:#13a35212}
+  .rank-pos{font-size:20px;font-weight:800;width:34px;text-align:center}
+  .rank-nome{flex:1;font-weight:700;font-size:15px}
+  .rank-det{font-size:12px;color:var(--txt2)}
+  .rank-pts{font-size:24px;font-weight:800;color:var(--verde-claro)}
+  .rank-pts small{font-size:12px;color:var(--txt2);font-weight:600}
+
+  /* revelados */
+  .rev-jogo{background:var(--card);border:1px solid var(--borda);border-radius:13px;padding:14px;margin-bottom:10px}
+  .rev-jogo h4{font-size:15px;margin-bottom:3px}
+  .rev-linha{display:flex;justify-content:space-between;padding:7px 0;border-top:1px solid var(--borda);font-size:14px}
+  .rev-linha:first-of-type{border-top:none}
+  .oculto{color:var(--txt2);font-style:italic;font-size:14px;padding:8px 0}
+
+  .vazio{text-align:center;color:var(--txt2);padding:40px 20px;font-size:15px}
+  .loader{text-align:center;padding:40px;color:var(--txt2)}
+  table.esp-tab{width:100%;border-collapse:collapse;font-size:14px}
+  table.esp-tab th{text-align:left;color:var(--txt2);font-weight:600;padding:7px;font-size:13px}
+  table.esp-tab td{padding:7px;border-top:1px solid var(--borda)}
+  .acerto{color:var(--verde-claro);font-weight:700}
+
+  /* moderador */
+  .mod-aviso{background:#ffd20015;border:1px solid #ffd20040;border-radius:12px;padding:13px 15px;font-size:13px;color:#ffe071;margin-bottom:14px}
+  .mod-jogo{background:var(--card);border:1px solid var(--borda);border-radius:12px;padding:12px 14px;margin-bottom:8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .mod-jogo .nomes{flex:1;font-size:14px;font-weight:600;min-width:150px}
+  .mod-jogo .data{font-size:12px;color:var(--txt2)}
+</style>
+</head>
+<body>
+
+<!-- ======== TELA DE LOGIN ======== -->
+<div id="tela-login">
+  <div class="login-card">
+    <div class="crest">⚽</div>
+    <h1 class="black">BOLÃO DA COPA</h1>
+    <p class="sub">Fase de grupos · 2026</p>
+
+    <label>Nome de usuário</label>
+    <input class="inp" id="in-user" placeholder="ex: matheus" autocomplete="username">
+    <label>Senha</label>
+    <input class="inp" id="in-pass" type="password" placeholder="sua senha" autocomplete="current-password">
+
+    <button class="btn" id="bt-entrar">Entrar</button>
+    <button class="btn btn-sec" id="bt-criar">Criar minha conta</button>
+
+    <div class="msg" id="login-msg"></div>
+    <p class="toggle-link" id="modo-info"></p>
+  </div>
+</div>
+
+<!-- ======== APP (escondido até logar) ======== -->
+<div id="tela-app" class="hidden">
+  <header class="topo">
+    <div class="topo-in">
+      <div class="topo-logo"><span class="mini">⚽</span> <span>Bolão da Copa</span></div>
+      <div class="topo-user">
+        <span id="user-nome"></span>
+        <span id="user-mod" class="badge-mod hidden">MOD</span>
+        <button class="sair" id="bt-sair">Sair</button>
+      </div>
+    </div>
+    <nav class="tabs">
+      <button data-aba="palpites" class="on">Meus palpites</button>
+      <button data-aba="ranking">Classificação</button>
+      <button data-aba="revelados">Revelados</button>
+      <button data-aba="moderador" id="tab-mod" class="hidden">Moderador</button>
+    </nav>
+  </header>
+
+  <main class="wrap">
+    <div id="aba-palpites"></div>
+    <div id="aba-ranking" class="hidden"></div>
+    <div id="aba-revelados" class="hidden"></div>
+    <div id="aba-moderador" class="hidden"></div>
+  </main>
+</div>
+
+<div class="salvo-flash" id="flash">✓ Palpite salvo</div>
+
+<!-- SDK do Supabase -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,435 @@
+// ============================================================
+//  BOLÃO DA COPA 2026 — lógica do site
+//  Você só precisa editar as DUAS linhas abaixo (URL e CHAVE).
+//  O manual explica onde achar esses dois valores no Supabase.
+// ============================================================
+const SUPABASE_URL  = "https://jqtpzbosopwjxlyfkoat.supabase.co";
+const SUPABASE_KEY  = "sb_publishable_9p02LnK8pJsNonMfUu3-xA_Q5_SzE4F";
+
+// Sufixo interno: o amigo digita "matheus", o sistema usa "matheus@bolao.local".
+// Isso permite login por usuário sem pedir e-mail. Não precisa mexer.
+const DOMINIO_FAKE = "@bolao.local";
+
+// ------------------------------------------------------------
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+let EU = null;          // { id, usuario, moderador }
+let JOGOS = [];         // todos os jogos
+let MEUS = {};          // meus palpites { jogo_id: {gm,gv} }
+let ABA = "palpites";
+let filtroGrupo = "todos";
+let filtroRodada = "todas";
+
+const $ = (s) => document.querySelector(s);
+const el = (id) => document.getElementById(id);
+const DIAS_PT = ["dom","seg","ter","qua","qui","sex","sáb"];
+
+// Lista das 48 seleções (para o palpite de campeão)
+const SELECOES = ["Alemanha","Arábia Saudita","Argélia","Argentina","Austrália","Áustria","Bélgica","Bósnia e Herzegovina","Brasil","Cabo Verde","Canadá","Catar","Chéquia","Colômbia","Coreia do Sul","Costa do Marfim","Croácia","Curaçao","Egito","Equador","Escócia","Espanha","Estados Unidos","França","Gana","Haiti","Holanda","Inglaterra","Irã","Iraque","Japão","Jordânia","Marrocos","México","Noruega","Nova Zelândia","Panamá","Paraguai","Portugal","RD Congo","Senegal","Suécia","Suíça","Tunísia","Turquia","Uruguai","Uzbequistão","África do Sul"];
+
+// ---------- helpers de data (SEMPRE em horário de Brasília) ----------
+// Fixamos o fuso de São Paulo para que os horários apareçam iguais
+// para todos, mesmo que o celular esteja com fuso diferente.
+const TZ = "America/Sao_Paulo";
+function fmtData(iso){
+  const d = new Date(iso);
+  const dia = new Intl.DateTimeFormat("pt-BR",{weekday:"short",timeZone:TZ}).format(d).replace(".","");
+  const dm = new Intl.DateTimeFormat("pt-BR",{day:"2-digit",month:"2-digit",timeZone:TZ}).format(d);
+  return `${dia} ${dm}`;
+}
+function fmtHora(iso){
+  return new Intl.DateTimeFormat("pt-BR",{hour:"2-digit",minute:"2-digit",hour12:false,timeZone:TZ}).format(new Date(iso));
+}
+function jogoAberto(j){ return new Date(j.inicio).getTime() > Date.now(); }
+function temResultado(j){ return j.gols_mandante !== null && j.gols_visitante !== null; }
+
+function pontos(p, j){
+  if(!p || !temResultado(j)) return null;
+  if(p.gm === j.gols_mandante && p.gv === j.gols_visitante) return 15;
+  const s=(x)=>Math.sign(x);
+  if(s(p.gm-p.gv) === s(j.gols_mandante-j.gols_visitante)) return 5;
+  return 0;
+}
+
+function flash(txt){
+  const f = el("flash"); f.textContent = txt; f.classList.add("show");
+  setTimeout(()=>f.classList.remove("show"), 1600);
+}
+function msgLogin(txt, tipo){
+  const m = el("login-msg"); m.textContent = txt; m.className = "msg " + tipo;
+}
+
+// ============================================================
+//  AUTENTICAÇÃO
+// ============================================================
+async function entrar(){
+  const u = el("in-user").value.trim().toLowerCase();
+  const p = el("in-pass").value;
+  if(!u || !p){ msgLogin("Preencha usuário e senha.", "erro"); return; }
+  msgLogin("Entrando...", "ok");
+  const { error } = await sb.auth.signInWithPassword({ email: u+DOMINIO_FAKE, password: p });
+  if(error){ msgLogin("Usuário ou senha incorretos.", "erro"); return; }
+  await iniciarApp();
+}
+
+async function criarConta(){
+  const u = el("in-user").value.trim().toLowerCase();
+  const p = el("in-pass").value;
+  if(!u || !p){ msgLogin("Escolha um usuário e uma senha.", "erro"); return; }
+  if(p.length < 6){ msgLogin("A senha precisa de ao menos 6 caracteres.", "erro"); return; }
+  if(!/^[a-z0-9_]+$/.test(u)){ msgLogin("Usuário só pode ter letras, números e _ (sem espaços).", "erro"); return; }
+  msgLogin("Criando conta...", "ok");
+  const { data, error } = await sb.auth.signUp({ email: u+DOMINIO_FAKE, password: p });
+  if(error){
+    msgLogin(error.message.includes("already") ? "Esse usuário já existe. Tente entrar." : "Erro ao criar conta.", "erro");
+    return;
+  }
+  // cria o perfil ligado ao usuário
+  const uid = data.user.id;
+  const { error: e2 } = await sb.from("perfis").insert({ id: uid, usuario: u });
+  if(e2 && !e2.message.includes("duplicate")){ msgLogin("Conta criada, mas houve erro no perfil. Avise o organizador.", "erro"); }
+  // alguns projetos exigem confirmar e-mail; como é fake, normalmente já loga.
+  if(!data.session){
+    const { error: e3 } = await sb.auth.signInWithPassword({ email: u+DOMINIO_FAKE, password: p });
+    if(e3){ msgLogin("Conta criada! Agora clique em Entrar.", "ok"); return; }
+  }
+  await iniciarApp();
+}
+
+async function sair(){
+  await sb.auth.signOut();
+  location.reload();
+}
+
+// ============================================================
+//  CARREGAR DADOS E INICIAR
+// ============================================================
+async function iniciarApp(){
+  const { data: sess } = await sb.auth.getSession();
+  if(!sess.session){ return; } // continua na tela de login
+
+  const uid = sess.session.user.id;
+  const { data: perfil } = await sb.from("perfis").select("*").eq("id", uid).single();
+  if(!perfil){
+    // perfil ainda não existe (raro): cria a partir do email fake
+    const emailLocal = sess.session.user.email.replace(DOMINIO_FAKE,"");
+    await sb.from("perfis").insert({ id: uid, usuario: emailLocal });
+    EU = { id: uid, usuario: emailLocal, moderador: false };
+  } else {
+    EU = perfil;
+  }
+
+  // jogos
+  const { data: jogos } = await sb.from("jogos").select("*").order("inicio");
+  JOGOS = jogos || [];
+
+  // meus palpites
+  const { data: meus } = await sb.from("palpites").select("*").eq("user_id", uid);
+  MEUS = {};
+  (meus||[]).forEach(p => MEUS[p.jogo_id] = { gm:p.gols_mandante, gv:p.gols_visitante });
+
+  // mostrar app
+  el("tela-login").classList.add("hidden");
+  el("tela-app").classList.remove("hidden");
+  el("user-nome").textContent = "@" + EU.usuario;
+  if(EU.moderador){ el("user-mod").classList.remove("hidden"); el("tab-mod").classList.remove("hidden"); }
+
+  renderAba();
+}
+
+// ============================================================
+//  NAVEGAÇÃO
+// ============================================================
+function trocarAba(nome){
+  ABA = nome;
+  document.querySelectorAll("nav.tabs button").forEach(b=>b.classList.toggle("on", b.dataset.aba===nome));
+  ["palpites","ranking","revelados","moderador"].forEach(a=>{
+    el("aba-"+a).classList.toggle("hidden", a!==nome);
+  });
+  renderAba();
+}
+function renderAba(){
+  if(ABA==="palpites") renderPalpites();
+  if(ABA==="ranking") renderRanking();
+  if(ABA==="revelados") renderRevelados();
+  if(ABA==="moderador") renderModerador();
+}
+
+// ============================================================
+//  ABA: MEUS PALPITES
+// ============================================================
+async function renderPalpites(){
+  const cont = el("aba-palpites");
+  // especiais
+  const { data: esp } = await sb.from("palpites_especiais").select("*").eq("user_id", EU.id).maybeSingle();
+  const campeao = esp?.campeao || "";
+  const artilheiro = esp?.artilheiro || "";
+
+  const grupos = [...new Set(JOGOS.map(j=>j.grupo))].sort();
+  let h = `
+    <div class="esp-card">
+      <h3>⭐ Palpites especiais <small style="font-weight:400;color:var(--txt2);font-size:12px">(50 pts cada)</small></h3>
+      <p class="hint">Você pode mudar quando quiser. Ficam visíveis a todos.</p>
+      <div class="esp-row">
+        <label>Campeão</label>
+        <select class="inp" id="sel-campeao"><option value="">— escolher —</option>
+          ${SELECOES.map(s=>`<option ${s===campeao?"selected":""}>${s}</option>`).join("")}
+        </select>
+      </div>
+      <div class="esp-row">
+        <label>Artilheiro</label>
+        <input class="inp" id="in-artilheiro" placeholder="nome do jogador" value="${artilheiro.replace(/"/g,'&quot;')}">
+      </div>
+      <button class="btn" style="margin-top:6px" id="bt-esp">Salvar especiais</button>
+    </div>
+
+    <div class="filtros">
+      <span class="lbl">Rodada:</span>
+      ${["todas",1,2,3].map(r=>`<button class="chip ${filtroRodada==r?'on':''}" data-rod="${r}">${r==="todas"?"todas":r+"ª"}</button>`).join("")}
+    </div>
+    <div class="filtros">
+      <span class="lbl">Grupo:</span>
+      <button class="chip ${filtroGrupo==='todos'?'on':''}" data-grp="todos">todos</button>
+      ${grupos.map(g=>`<button class="chip ${filtroGrupo===g?'on':''}" data-grp="${g}">${g}</button>`).join("")}
+    </div>
+    <div id="lista-jogos"></div>
+  `;
+  cont.innerHTML = h;
+
+  el("bt-esp").onclick = salvarEspeciais;
+  cont.querySelectorAll("[data-rod]").forEach(b=>b.onclick=()=>{
+    filtroRodada = b.dataset.rod==="todas"?"todas":+b.dataset.rod;
+    cont.querySelectorAll("[data-rod]").forEach(x=>x.classList.toggle("on", x.dataset.rod===b.dataset.rod));
+    renderListaJogos();
+  });
+  cont.querySelectorAll("[data-grp]").forEach(b=>b.onclick=()=>{
+    filtroGrupo=b.dataset.grp;
+    cont.querySelectorAll("[data-grp]").forEach(x=>x.classList.toggle("on", x.dataset.grp===b.dataset.grp));
+    renderListaJogos();
+  });
+
+  renderListaJogos();
+}
+
+function renderListaJogos(){
+  const lista = el("lista-jogos");
+  let js = JOGOS.filter(j =>
+    (filtroGrupo==="todos" || j.grupo===filtroGrupo) &&
+    (filtroRodada==="todas" || j.rodada===filtroRodada)
+  );
+  if(!js.length){ lista.innerHTML = `<p class="vazio">Nenhum jogo com esse filtro.</p>`; return; }
+
+  let h = ""; let ultimoDia = "";
+  js.forEach(j=>{
+    const diaKey = fmtData(j.inicio);
+    if(diaKey !== ultimoDia){ h += `<div class="dia-sep">${diaKey}</div>`; ultimoDia = diaKey; }
+    const aberto = jogoAberto(j);
+    const p = MEUS[j.id];
+    const brM = j.mandante==="Brasil" ? "br":"";
+    const brV = j.visitante==="Brasil" ? "br":"";
+    const pt = pontos(p, j);
+    h += `
+      <div class="jogo">
+        <div class="jogo-topo">
+          <div class="jogo-meta"><span class="grp-tag">Grupo ${j.grupo}</span> ${fmtHora(j.inicio)}h</div>
+          <span class="estado ${aberto?'aberto':'fechado'}">${aberto?'aberto':'fechado'}</span>
+        </div>
+        <div class="confronto">
+          <div class="time dir ${brM}">${j.mandante}</div>
+          <input class="placar-in" type="number" min="0" inputmode="numeric"
+            data-jogo="${j.id}" data-lado="gm" value="${p?p.gm:''}" ${aberto?'':'disabled'} aria-label="gols ${j.mandante}">
+          <span class="x">×</span>
+          <input class="placar-in" type="number" min="0" inputmode="numeric"
+            data-jogo="${j.id}" data-lado="gv" value="${p?p.gv:''}" ${aberto?'':'disabled'} aria-label="gols ${j.visitante}">
+          <div class="time ${brV}">${j.visitante}</div>
+        </div>
+        ${temResultado(j) ? `<div class="resultado-real">Resultado: ${j.gols_mandante} × ${j.gols_visitante} ${pt!==null?`<span class="pts-tag pts-${pt}">+${pt} pts</span>`:''}</div>`:''}
+      </div>`;
+  });
+  lista.innerHTML = h;
+
+  lista.querySelectorAll(".placar-in").forEach(inp=>{
+    inp.onchange = () => salvarPalpite(inp.dataset.jogo);
+  });
+}
+
+async function salvarPalpite(jogoId){
+  const gmEl = document.querySelector(`[data-jogo="${jogoId}"][data-lado="gm"]`);
+  const gvEl = document.querySelector(`[data-jogo="${jogoId}"][data-lado="gv"]`);
+  const gm = gmEl.value === "" ? null : parseInt(gmEl.value);
+  const gv = gvEl.value === "" ? null : parseInt(gvEl.value);
+  if(gm===null || gv===null) return; // só salva quando os dois estão preenchidos
+  if(gm<0 || gv<0) return;
+
+  const { error } = await sb.from("palpites").upsert({
+    user_id: EU.id, jogo_id: jogoId, gols_mandante: gm, gols_visitante: gv, atualizado_em: new Date().toISOString()
+  }, { onConflict: "user_id,jogo_id" });
+
+  if(error){ flash("⚠ Não salvou — jogo já começou?"); return; }
+  MEUS[jogoId] = { gm, gv };
+  flash("✓ Palpite salvo");
+}
+
+async function salvarEspeciais(){
+  const campeao = el("sel-campeao").value || null;
+  const artilheiro = el("in-artilheiro").value.trim() || null;
+  const { error } = await sb.from("palpites_especiais").upsert({
+    user_id: EU.id, campeao, artilheiro, atualizado_em: new Date().toISOString()
+  }, { onConflict: "user_id" });
+  flash(error ? "⚠ Erro ao salvar" : "✓ Especiais salvos");
+}
+
+// ============================================================
+//  ABA: CLASSIFICAÇÃO
+// ============================================================
+async function renderRanking(){
+  const cont = el("aba-ranking");
+  cont.innerHTML = `<div class="loader">Calculando...</div>`;
+  const { data, error } = await sb.from("classificacao").select("*");
+  if(error || !data){ cont.innerHTML = `<p class="vazio">Erro ao carregar o ranking.</p>`; return; }
+
+  const medalhas = ["🥇","🥈","🥉"];
+  let h = "";
+  data.forEach((r,i)=>{
+    const eu = r.user_id === EU.id;
+    const pos = medalhas[i] || `${i+1}º`;
+    h += `
+      <div class="rank-row ${eu?'eu':''}">
+        <div class="rank-pos">${pos}</div>
+        <div class="rank-nome">@${r.usuario} ${eu?'<small style="color:var(--verde-claro)">(você)</small>':''}
+          <div class="rank-det">${r.exatos} placares exatos${r.acertou_artilheiro?' · ✓ artilheiro':''}${r.acertou_campeao?' · ✓ campeão':''}</div>
+        </div>
+        <div class="rank-pts">${r.total}<small> pts</small></div>
+      </div>`;
+  });
+  h += `<p class="hint" style="text-align:center;color:var(--txt2);font-size:12px;margin-top:14px">Desempate: artilheiro → campeão → nº de placares exatos</p>`;
+  cont.innerHTML = h || `<p class="vazio">Sem participantes ainda.</p>`;
+}
+
+// ============================================================
+//  ABA: REVELADOS
+// ============================================================
+async function renderRevelados(){
+  const cont = el("aba-revelados");
+  cont.innerHTML = `<div class="loader">Carregando...</div>`;
+
+  const { data: perfis } = await sb.from("perfis").select("id,usuario");
+  const { data: esp } = await sb.from("palpites_especiais").select("*");
+  const { data: todos } = await sb.from("palpites").select("*");
+
+  const nome = {}; (perfis||[]).forEach(p=>nome[p.id]=p.usuario);
+  const espMap = {}; (esp||[]).forEach(e=>espMap[e.user_id]=e);
+
+  // tabela de especiais (sempre visível)
+  let h = `<div class="esp-card"><h3>⭐ Palpites especiais</h3>
+    <table class="esp-tab"><tr><th>Jogador</th><th>Campeão</th><th>Artilheiro</th></tr>`;
+  (perfis||[]).forEach(p=>{
+    const e = espMap[p.id]||{};
+    h += `<tr><td>@${p.usuario}</td><td>${e.campeao||'—'}</td><td>${e.artilheiro||'—'}</td></tr>`;
+  });
+  h += `</table></div>`;
+
+  // jogos fechados, mais recentes primeiro
+  const fechados = JOGOS.filter(j=>!jogoAberto(j)).sort((a,b)=>new Date(b.inicio)-new Date(a.inicio));
+  if(!fechados.length){
+    h += `<p class="vazio">Nenhum jogo fechou ainda.<br>Os palpites de cada jogo aparecem aqui após o apito inicial.</p>`;
+  } else {
+    const porJogo = {};
+    (todos||[]).forEach(p=>{ (porJogo[p.jogo_id] = porJogo[p.jogo_id]||[]).push(p); });
+    fechados.forEach(j=>{
+      h += `<div class="rev-jogo"><h4>${j.mandante} × ${j.visitante}
+        <small style="color:var(--txt2);font-weight:400"> · Grupo ${j.grupo} · ${fmtData(j.inicio)}</small></h4>`;
+      if(temResultado(j)) h += `<div class="resultado-real">Resultado oficial: ${j.gols_mandante} × ${j.gols_visitante}</div>`;
+      const ps = porJogo[j.id]||[];
+      if(!ps.length){ h += `<p class="oculto">Ninguém palpitou neste jogo.</p>`; }
+      ps.forEach(p=>{
+        const pt = pontos({gm:p.gols_mandante,gv:p.gols_visitante}, j);
+        h += `<div class="rev-linha"><span>@${nome[p.user_id]||'?'}</span>
+          <span>${p.gols_mandante} × ${p.gols_visitante} ${pt!==null?`<span class="pts-tag pts-${pt}">+${pt}</span>`:''}</span></div>`;
+      });
+      h += `</div>`;
+    });
+  }
+  cont.innerHTML = h;
+}
+
+// ============================================================
+//  ABA: MODERADOR
+// ============================================================
+async function renderModerador(){
+  const cont = el("aba-moderador");
+  const { data: cfg } = await sb.from("config").select("*").single();
+
+  let h = `<div class="mod-aviso">⚙ Você lança os resultados aqui. O placar dos palpites trava sozinho no horário de cada jogo — você não precisa abrir nem fechar nada.</div>`;
+
+  h += `<div class="esp-card"><h3>🏆 Gabarito dos especiais</h3>
+    <p class="hint">Preencha só no fim da Copa. Define quem ganha os 50+50.</p>
+    <div class="esp-row"><label>Campeão</label>
+      <select class="inp" id="cfg-campeao"><option value="">—</option>
+        ${SELECOES.map(s=>`<option ${cfg?.campeao_real===s?'selected':''}>${s}</option>`).join("")}
+      </select></div>
+    <div class="esp-row"><label>Artilheiro</label>
+      <input class="inp" id="cfg-artilheiro" value="${(cfg?.artilheiro_real||'').replace(/"/g,'&quot;')}" placeholder="nome do jogador"></div>
+    <button class="btn" style="margin-top:6px" id="bt-cfg">Salvar gabarito</button>
+  </div>`;
+
+  h += `<h3 style="margin:18px 0 10px;font-size:16px">📋 Lançar resultados</h3>`;
+  JOGOS.forEach(j=>{
+    h += `<div class="mod-jogo">
+      <div class="nomes">${j.mandante} × ${j.visitante}<div class="data">Grupo ${j.grupo} · ${fmtData(j.inicio)} ${fmtHora(j.inicio)}h</div></div>
+      <input class="placar-in" type="number" min="0" data-res="${j.id}" data-lado="gm" value="${j.gols_mandante??''}" aria-label="resultado ${j.mandante}">
+      <span class="x">×</span>
+      <input class="placar-in" type="number" min="0" data-res="${j.id}" data-lado="gv" value="${j.gols_visitante??''}" aria-label="resultado ${j.visitante}">
+    </div>`;
+  });
+  cont.innerHTML = h;
+
+  el("bt-cfg").onclick = async ()=>{
+    const { error } = await sb.from("config").update({
+      campeao_real: el("cfg-campeao").value||null,
+      artilheiro_real: el("cfg-artilheiro").value.trim()||null
+    }).eq("id",1);
+    flash(error?"⚠ Erro":"✓ Gabarito salvo");
+  };
+  cont.querySelectorAll("[data-res]").forEach(inp=>{
+    inp.onchange = ()=>salvarResultado(inp.dataset.res);
+  });
+}
+
+async function salvarResultado(jogoId){
+  const gm = document.querySelector(`[data-res="${jogoId}"][data-lado="gm"]`).value;
+  const gv = document.querySelector(`[data-res="${jogoId}"][data-lado="gv"]`).value;
+  const upd = {
+    gols_mandante: gm===""?null:parseInt(gm),
+    gols_visitante: gv===""?null:parseInt(gv)
+  };
+  const { error } = await sb.from("jogos").update(upd).eq("id", jogoId);
+  if(error){ flash("⚠ Erro ao salvar"); return; }
+  const j = JOGOS.find(x=>x.id===jogoId);
+  j.gols_mandante = upd.gols_mandante; j.gols_visitante = upd.gols_visitante;
+  flash("✓ Resultado salvo");
+}
+
+// ============================================================
+//  EVENTOS GLOBAIS + BOOT
+// ============================================================
+el("bt-entrar").onclick = entrar;
+el("bt-criar").onclick = criarConta;
+el("bt-sair").onclick = sair;
+el("in-pass").addEventListener("keydown", e=>{ if(e.key==="Enter") entrar(); });
+document.querySelectorAll("nav.tabs button").forEach(b=> b.onclick = ()=>trocarAba(b.dataset.aba));
+
+// se já estiver logado (sessão salva), entra direto
+iniciarApp();
+
+// Expõe estado/funções para depuração no console do navegador (inofensivo).
+// Ex.: no console dá pra inspecionar window.bolao.JOGOS
+window.bolao = {
+  get EU(){return EU}, set EU(v){EU=v},
+  get JOGOS(){return JOGOS}, set JOGOS(v){JOGOS=v},
+  get MEUS(){return MEUS}, set MEUS(v){MEUS=v},
+  get filtroGrupo(){return filtroGrupo}, set filtroGrupo(v){filtroGrupo=v},
+  get filtroRodada(){return filtroRodada}, set filtroRodada(v){filtroRodada=v},
+  jogoAberto, temResultado, pontos, fmtData, fmtHora,
+  renderPalpites, renderListaJogos
+};
