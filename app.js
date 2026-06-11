@@ -3,8 +3,8 @@
 //  Você só precisa editar as DUAS linhas abaixo (URL e CHAVE).
 //  O manual explica onde achar esses dois valores no Supabase.
 // ============================================================
-const SUPABASE_URL  = "COLE_AQUI_A_URL_DO_PROJETO";
-const SUPABASE_KEY  = "COLE_AQUI_A_CHAVE_ANON_PUBLISHABLE";
+const SUPABASE_URL  = "https://jqtpzbosopwjxlyfkoat.supabase.co";
+const SUPABASE_KEY  = "sb_publishable_9p02LnK8pJsNonMfUu3-xA_Q5_SzE4F";
 
 // Sufixo interno: o amigo digita "matheus", o sistema usa "matheus@bolao.local".
 // Isso permite login por usuário sem pedir e-mail. Não precisa mexer.
