@@ -48,12 +48,19 @@ const COD_PAIS = {
   "Panamá":"pa","Paraguai":"py","Portugal":"pt","RD Congo":"cd","Senegal":"sn","Suécia":"se",
   "Suíça":"ch","Tunísia":"tn","Turquia":"tr","Uruguai":"uy","Uzbequistão":"uz","África do Sul":"za"
 };
-// Devolve o <img> da bandeira (ou vazio se o nome não for uma seleção, ex.: "A definir")
-function bandeira(time, tam){
+// Seleções com bandeira QUADRADA (1:1). Só a Suíça na Copa 2026.
+const BANDEIRA_QUADRADA = new Set(["Suíça"]);
+// Devolve o <img> da bandeira (ou vazio se não for seleção, ex.: "A definir").
+// Todas saem no MESMO tamanho padronizado. Para não esticar bandeiras de
+// proporção incomum (Catar), a imagem é recortada (object-fit:cover) dentro
+// de uma caixa fixa. A Suíça usa caixa quadrada (sua proporção natural).
+function bandeira(time, alt){
   const cod = COD_PAIS[time];
   if(!cod) return "";
-  const h = tam || 18;
-  return `<img class="flag" src="https://flagcdn.com/h${h<=20?20:40}/${cod}.png" alt="" loading="lazy" style="height:${h}px">`;
+  const h = alt || 16;                 // altura padrão
+  const quad = BANDEIRA_QUADRADA.has(time);
+  const w = quad ? h : Math.round(h*1.5); // 3:2 normal, 1:1 quadrada
+  return `<img class="flag" src="https://flagcdn.com/w80/${cod}.png" alt="" loading="lazy" style="width:${w}px;height:${h}px" onerror="this.style.display='none'">`;
 }
 
 // ---------- helpers de data (SEMPRE em horário de Brasília) ----------
@@ -479,7 +486,7 @@ function renderRevList(){
       <div class="acc" data-acc="${j.id}">
         <div class="acc-cab" data-jogoacc="${j.id}">
           <span class="acc-titulo">
-            ${bandeira(j.mandante,16)} ${j.mandante} ${resTitulo} ${bandeira(j.visitante,16)} ${j.visitante}
+            ${bandeira(j.mandante,17)} ${j.mandante} ${resTitulo} ${bandeira(j.visitante,17)} ${j.visitante}
           </span>
           <span class="seta">▶</span>
         </div>
@@ -554,7 +561,7 @@ async function renderModerador(){
   h += `<h3 style="margin:18px 0 10px;font-size:16px">📋 Lançar resultados</h3>`;
   JOGOS.forEach(j=>{
     h += `<div class="mod-jogo">
-      <div class="nomes">${bandeira(j.mandante,15)} ${j.mandante} × ${j.visitante} ${bandeira(j.visitante,15)}<div class="data">Grupo ${j.grupo} · ${fmtData(j.inicio)} ${fmtHora(j.inicio)}h</div></div>
+      <div class="nomes">${bandeira(j.mandante,16)} ${j.mandante} × ${j.visitante} ${bandeira(j.visitante,16)}<div class="data">Grupo ${j.grupo} · ${fmtData(j.inicio)} ${fmtHora(j.inicio)}h</div></div>
       <input class="placar-in" type="number" min="0" data-res="${j.id}" data-lado="gm" value="${j.gols_mandante??''}" aria-label="resultado ${j.mandante}">
       <span class="x">×</span>
       <input class="placar-in" type="number" min="0" data-res="${j.id}" data-lado="gv" value="${j.gols_visitante??''}" aria-label="resultado ${j.visitante}">
