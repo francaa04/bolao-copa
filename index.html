@@ -105,6 +105,19 @@
   .time{flex:1;display:flex;align-items:center;gap:7px;font-weight:600;font-size:15px}
   .time.dir{justify-content:flex-end;text-align:right}
   .time.br{color:var(--amarelo)}
+  .flag{border-radius:3px;vertical-align:middle;box-shadow:0 0 0 0.5px rgba(255,255,255,.15);object-fit:cover}
+  .time .flag{margin:0 6px}
+  /* accordion (menu suspenso) da aba Revelados */
+  .acc{background:var(--card);border:1px solid var(--borda);border-radius:13px;margin-bottom:9px;overflow:hidden}
+  .acc-cab{display:flex;align-items:center;gap:8px;padding:13px 15px;cursor:pointer;user-select:none}
+  .acc-cab:hover{background:#ffffff06}
+  .acc-cab .seta{color:var(--txt2);transition:transform .2s;font-size:13px;margin-left:auto}
+  .acc.aberto .seta{transform:rotate(90deg)}
+  .acc-titulo{font-weight:600;font-size:14px;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+  .acc-corpo{display:none;padding:0 15px 12px}
+  .acc.aberto .acc-corpo{display:block}
+  .acc-resultado{font-size:12px;color:var(--amarelo);font-weight:700;margin-left:6px}
+  .acc-pend{font-size:11px;color:var(--txt2);font-weight:600;margin-left:6px}
   .placar-in{
     width:42px;height:42px;text-align:center;font-size:18px;font-weight:800;
     background:#0b1c13;border:1px solid var(--borda);border-radius:10px;color:var(--txt);
@@ -166,7 +179,7 @@
   <div class="login-card">
     <div class="crest">⚽</div>
     <h1 class="black">BOLÃO DA COPA</h1>
-    <p class="sub">Lobby das Estrelas · 2026</p>
+    <p class="sub">Fase de grupos · 2026</p>
 
     <label>Nome de usuário</label>
     <input class="inp" id="in-user" placeholder="ex: matheus" autocomplete="username">
