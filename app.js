@@ -538,8 +538,16 @@ async function renderModerador(){
   </div>`;
 
   // Validação MANUAL do ARTILHEIRO (joinha por pessoa)
-  h += `<div class="esp-card"><h3>⚽ Validar artilheiro <small style="font-weight:400;color:var(--txt2);font-size:12px">(50 pts)</small></h3>
-    <p class="hint">O texto de cada um fica intocado. Você marca quem acertou — mesmo apelidos como "Furacão" valem se você validar.</p>`;
+  const nValidados = (perfis||[]).filter(p=>espMap[p.id]?.artilheiro_ok).length;
+  const nComPalpite = (perfis||[]).filter(p=>espMap[p.id]?.artilheiro).length;
+  h += `<div class="acc" data-acc="valid-art">
+    <div class="acc-cab" data-toggle="valid-art">
+      <span class="acc-titulo">⚽ Validar artilheiro <small style="font-weight:400;color:var(--txt2);font-size:12px">(50 pts)</small></span>
+      ${nValidados>0 ? `<span class="acc-resultado">${nValidados} ✓</span>` : `<span class="acc-pend">${nComPalpite} palpite${nComPalpite===1?'':'s'}</span>`}
+      <span class="seta">▶</span>
+    </div>
+    <div class="acc-corpo">
+      <p class="hint" style="margin-top:4px">O texto de cada um fica intocado. Você marca quem acertou — mesmo apelidos como "Furacão" valem se você validar.</p>`;
   if(!perfis || !perfis.length){
     h += `<p class="oculto">Nenhum participante ainda.</p>`;
   } else {
@@ -556,7 +564,7 @@ async function renderModerador(){
       </div>`;
     });
   }
-  h += `</div>`;
+  h += `</div></div>`;
 
   h += `<h3 style="margin:18px 0 10px;font-size:16px">📋 Lançar resultados</h3>`;
   JOGOS.forEach(j=>{
@@ -568,6 +576,10 @@ async function renderModerador(){
     </div>`;
   });
   cont.innerHTML = h;
+
+  // abrir/fechar o accordion de validação do artilheiro
+  const toggleArt = cont.querySelector('[data-toggle="valid-art"]');
+  if(toggleArt) toggleArt.onclick = ()=> toggleArt.closest(".acc").classList.toggle("aberto");
 
   el("bt-cfg").onclick = async ()=>{
     const { error } = await sb.from("config").update({
