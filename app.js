@@ -178,7 +178,7 @@ async function renderPalpites(){
       <h3>⭐ Palpites especiais <small style="font-weight:400;color:var(--txt2);font-size:12px">(50 pts cada)</small></h3>
       <p class="hint">${especiaisAbertos()
         ? "Escolha antes do primeiro jogo (11/06 16:00). Depois disso, congela. Ficam visíveis a todos."
-        : "⛔ Mercado fechado — começou no primeiro jogo. Seus palpites estão congelados."}</p>
+        : "⛔ Mercado fechado. Aguarde o resultado."}</p>
       <div class="esp-row">
         <label>Campeão</label>
         <select class="inp" id="sel-campeao" ${especiaisAbertos()?"":"disabled"}><option value="">— escolher —</option>
