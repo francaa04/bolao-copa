@@ -26,6 +26,8 @@ let MEUS = {};          // meus palpites { jogo_id: {gm,gv} }
 let ABA = "palpites";
 let filtroGrupo = "todos";
 let filtroRodada = "todas";
+let revGrupo = "todos";
+let revRodada = "todas";
 
 const $ = (s) => document.querySelector(s);
 const el = (id) => document.getElementById(id);
@@ -33,6 +35,26 @@ const DIAS_PT = ["dom","seg","ter","qua","qui","sex","sáb"];
 
 // Lista das 48 seleções (para o palpite de campeão)
 const SELECOES = ["Alemanha","Arábia Saudita","Argélia","Argentina","Austrália","Áustria","Bélgica","Bósnia e Herzegovina","Brasil","Cabo Verde","Canadá","Catar","Chéquia","Colômbia","Coreia do Sul","Costa do Marfim","Croácia","Curaçao","Egito","Equador","Escócia","Espanha","Estados Unidos","França","Gana","Haiti","Holanda","Inglaterra","Irã","Iraque","Japão","Jordânia","Marrocos","México","Noruega","Nova Zelândia","Panamá","Paraguai","Portugal","RD Congo","Senegal","Suécia","Suíça","Tunísia","Turquia","Uruguai","Uzbequistão","África do Sul"];
+
+// Mapa: nome da seleção -> código de país (flagcdn). Validado contra ISO 3166-1.
+const COD_PAIS = {
+  "Alemanha":"de","Arábia Saudita":"sa","Argélia":"dz","Argentina":"ar","Austrália":"au",
+  "Áustria":"at","Bélgica":"be","Bósnia e Herzegovina":"ba","Brasil":"br","Cabo Verde":"cv",
+  "Canadá":"ca","Catar":"qa","Chéquia":"cz","Colômbia":"co","Coreia do Sul":"kr",
+  "Costa do Marfim":"ci","Croácia":"hr","Curaçao":"cw","Egito":"eg","Equador":"ec",
+  "Escócia":"gb-sct","Espanha":"es","Estados Unidos":"us","França":"fr","Gana":"gh",
+  "Haiti":"ht","Holanda":"nl","Inglaterra":"gb-eng","Irã":"ir","Iraque":"iq","Japão":"jp",
+  "Jordânia":"jo","Marrocos":"ma","México":"mx","Noruega":"no","Nova Zelândia":"nz",
+  "Panamá":"pa","Paraguai":"py","Portugal":"pt","RD Congo":"cd","Senegal":"sn","Suécia":"se",
+  "Suíça":"ch","Tunísia":"tn","Turquia":"tr","Uruguai":"uy","Uzbequistão":"uz","África do Sul":"za"
+};
+// Devolve o <img> da bandeira (ou vazio se o nome não for uma seleção, ex.: "A definir")
+function bandeira(time, tam){
+  const cod = COD_PAIS[time];
+  if(!cod) return "";
+  const h = tam || 18;
+  return `<img class="flag" src="https://flagcdn.com/h${h<=20?20:40}/${cod}.png" alt="" loading="lazy" style="height:${h}px">`;
+}
 
 // ---------- helpers de data (SEMPRE em horário de Brasília) ----------
 // Fixamos o fuso de São Paulo para que os horários apareçam iguais
@@ -245,13 +267,13 @@ function renderListaJogos(){
           <span class="estado ${aberto?'aberto':'fechado'}">${aberto?'aberto':'fechado'}</span>
         </div>
         <div class="confronto">
-          <div class="time dir ${brM}">${j.mandante}</div>
+          <div class="time dir ${brM}">${j.mandante} ${bandeira(j.mandante,18)}</div>
           <input class="placar-in" type="number" min="0" inputmode="numeric"
             data-jogo="${j.id}" data-lado="gm" value="${p?p.gm:''}" ${aberto?'':'disabled'} aria-label="gols ${j.mandante}">
           <span class="x">×</span>
           <input class="placar-in" type="number" min="0" inputmode="numeric"
             data-jogo="${j.id}" data-lado="gv" value="${p?p.gv:''}" ${aberto?'':'disabled'} aria-label="gols ${j.visitante}">
-          <div class="time ${brV}">${j.visitante}</div>
+          <div class="time ${brV}">${bandeira(j.visitante,18)} ${j.visitante}</div>
         </div>
         ${temResultado(j) ? `<div class="resultado-real">Resultado: ${j.gols_mandante} × ${j.gols_visitante} ${pt!==null?`<span class="pts-tag pts-${pt}">+${pt} pts</span>`:''}</div>`:''}
       </div>`;
@@ -370,41 +392,120 @@ async function renderRevelados(){
 
   const nome = {}; (perfis||[]).forEach(p=>nome[p.id]=p.usuario);
   const espMap = {}; (esp||[]).forEach(e=>espMap[e.user_id]=e);
+  const porJogo = {}; (todos||[]).forEach(p=>{ (porJogo[p.jogo_id]=porJogo[p.jogo_id]||[]).push(p); });
 
-  // tabela de especiais (sempre visível)
-  let h = `<div class="esp-card"><h3>⭐ Palpites especiais</h3>
-    <table class="esp-tab"><tr><th>Jogador</th><th>Campeão</th><th>Artilheiro</th></tr>`;
-  (perfis||[]).forEach(p=>{
+  const grupos = [...new Set(JOGOS.map(j=>j.grupo))].sort();
+
+  // ---- ESPECIAIS (accordion no topo) ----
+  let espRows = (perfis||[]).map(p=>{
     const e = espMap[p.id]||{};
+    const campTxt = e.campeao ? `${bandeira(e.campeao,16)} ${e.campeao}` : '—';
     const artTxt = e.artilheiro
       ? `${e.artilheiro}${e.artilheiro_ok ? ' <span class="acerto">✓</span>' : ''}`
       : '—';
-    h += `<tr><td>@${p.usuario}</td><td>${e.campeao||'—'}</td><td>${artTxt}</td></tr>`;
-  });
-  h += `</table></div>`;
+    return `<tr><td>@${p.usuario}</td><td>${campTxt}</td><td>${artTxt}</td></tr>`;
+  }).join("");
 
-  // jogos fechados, mais recentes primeiro
-  const fechados = JOGOS.filter(j=>!jogoAberto(j)).sort((a,b)=>new Date(b.inicio)-new Date(a.inicio));
+  let h = `
+    <div class="acc aberto" data-acc="especiais">
+      <div class="acc-cab" data-toggle="especiais">
+        <span class="acc-titulo">⭐ Palpites especiais</span>
+        <span class="seta">▶</span>
+      </div>
+      <div class="acc-corpo">
+        <table class="esp-tab"><tr><th>Jogador</th><th>Campeão</th><th>Artilheiro</th></tr>${espRows}</table>
+      </div>
+    </div>
+
+    <div class="filtros">
+      <span class="lbl">Rodada:</span>
+      ${["todas",1,2,3].map(r=>`<button class="chip ${revRodada==r?'on':''}" data-revrod="${r}">${r==="todas"?"todas":r+"ª"}</button>`).join("")}
+    </div>
+    <div class="filtros">
+      <span class="lbl">Grupo:</span>
+      <button class="chip ${revGrupo==='todos'?'on':''}" data-revgrp="todos">todos</button>
+      ${grupos.map(g=>`<button class="chip ${revGrupo===g?'on':''}" data-revgrp="${g}">${g}</button>`).join("")}
+    </div>
+    <div id="rev-lista"></div>
+  `;
+  cont.innerHTML = h;
+
+  // guardar dados para a sublista poder redesenhar com filtro sem rebuscar
+  cont._revData = { porJogo, nome };
+
+  // eventos: toggle do accordion de especiais + filtros
+  cont.querySelector('[data-toggle="especiais"]').onclick = (ev)=>{
+    ev.currentTarget.closest(".acc").classList.toggle("aberto");
+  };
+  cont.querySelectorAll("[data-revrod]").forEach(b=>b.onclick=()=>{
+    revRodada = b.dataset.revrod==="todas"?"todas":+b.dataset.revrod;
+    cont.querySelectorAll("[data-revrod]").forEach(x=>x.classList.toggle("on",x.dataset.revrod===b.dataset.revrod));
+    renderRevList();
+  });
+  cont.querySelectorAll("[data-revgrp]").forEach(b=>b.onclick=()=>{
+    revGrupo = b.dataset.revgrp;
+    cont.querySelectorAll("[data-revgrp]").forEach(x=>x.classList.toggle("on",x.dataset.revgrp===b.dataset.revgrp));
+    renderRevList();
+  });
+
+  renderRevList();
+}
+
+// Desenha a lista de jogos revelados (accordion por jogo), aplicando os filtros.
+function renderRevList(){
+  const cont = el("aba-revelados");
+  const lista = el("rev-lista");
+  const { porJogo, nome } = cont._revData || { porJogo:{}, nome:{} };
+
+  // só jogos fechados; aplica filtro de grupo/rodada; mais recentes primeiro
+  let fechados = JOGOS
+    .filter(j => !jogoAberto(j))
+    .filter(j => (revGrupo==="todos"||j.grupo===revGrupo) && (revRodada==="todas"||j.rodada===revRodada))
+    .sort((a,b)=>new Date(b.inicio)-new Date(a.inicio));
+
   if(!fechados.length){
-    h += `<p class="vazio">Nenhum jogo fechou ainda.<br>Os palpites de cada jogo aparecem aqui após o apito inicial.</p>`;
-  } else {
-    const porJogo = {};
-    (todos||[]).forEach(p=>{ (porJogo[p.jogo_id] = porJogo[p.jogo_id]||[]).push(p); });
-    fechados.forEach(j=>{
-      h += `<div class="rev-jogo"><h4>${j.mandante} × ${j.visitante}
-        <small style="color:var(--txt2);font-weight:400"> · Grupo ${j.grupo} · ${fmtData(j.inicio)}</small></h4>`;
-      if(temResultado(j)) h += `<div class="resultado-real">Resultado oficial: ${j.gols_mandante} × ${j.gols_visitante}</div>`;
-      const ps = porJogo[j.id]||[];
-      if(!ps.length){ h += `<p class="oculto">Ninguém palpitou neste jogo.</p>`; }
-      ps.forEach(p=>{
+    lista.innerHTML = `<p class="vazio">Nenhum jogo fechado com esse filtro.<br>Os palpites aparecem aqui após o apito de cada jogo.</p>`;
+    return;
+  }
+
+  let h = "";
+  fechados.forEach(j=>{
+    const ps = porJogo[j.id]||[];
+    // título: "México 2 × 0 África do Sul" se tiver resultado, senão sem placar
+    const resTitulo = temResultado(j)
+      ? `<span class="acc-resultado">${j.gols_mandante} × ${j.gols_visitante}</span>`
+      : `<span class="acc-pend">(aguardando resultado)</span>`;
+    h += `
+      <div class="acc" data-acc="${j.id}">
+        <div class="acc-cab" data-jogoacc="${j.id}">
+          <span class="acc-titulo">
+            ${bandeira(j.mandante,16)} ${j.mandante} ${resTitulo} ${bandeira(j.visitante,16)} ${j.visitante}
+          </span>
+          <span class="seta">▶</span>
+        </div>
+        <div class="acc-corpo">
+          <p class="acc-pend" style="margin:2px 0 8px">Grupo ${j.grupo} · ${fmtData(j.inicio)} · ${ps.length} palpite${ps.length===1?'':'s'}</p>`;
+    if(!ps.length){
+      h += `<p class="oculto">Ninguém palpitou neste jogo.</p>`;
+    } else {
+      // ordenar por pontos (maior primeiro) quando há resultado
+      const ordenados = temResultado(j)
+        ? ps.slice().sort((a,b)=> (pontos({gm:b.gols_mandante,gv:b.gols_visitante},j)||0) - (pontos({gm:a.gols_mandante,gv:a.gols_visitante},j)||0))
+        : ps;
+      ordenados.forEach(p=>{
         const pt = pontos({gm:p.gols_mandante,gv:p.gols_visitante}, j);
         h += `<div class="rev-linha"><span>@${nome[p.user_id]||'?'}</span>
           <span>${p.gols_mandante} × ${p.gols_visitante} ${pt!==null?`<span class="pts-tag pts-${pt}">+${pt}</span>`:''}</span></div>`;
       });
-      h += `</div>`;
-    });
-  }
-  cont.innerHTML = h;
+    }
+    h += `</div></div>`;
+  });
+  lista.innerHTML = h;
+
+  // toggle de cada jogo
+  lista.querySelectorAll("[data-jogoacc]").forEach(cab=>{
+    cab.onclick = ()=> cab.closest(".acc").classList.toggle("aberto");
+  });
 }
 
 // ============================================================
@@ -453,7 +554,7 @@ async function renderModerador(){
   h += `<h3 style="margin:18px 0 10px;font-size:16px">📋 Lançar resultados</h3>`;
   JOGOS.forEach(j=>{
     h += `<div class="mod-jogo">
-      <div class="nomes">${j.mandante} × ${j.visitante}<div class="data">Grupo ${j.grupo} · ${fmtData(j.inicio)} ${fmtHora(j.inicio)}h</div></div>
+      <div class="nomes">${bandeira(j.mandante,15)} ${j.mandante} × ${j.visitante} ${bandeira(j.visitante,15)}<div class="data">Grupo ${j.grupo} · ${fmtData(j.inicio)} ${fmtHora(j.inicio)}h</div></div>
       <input class="placar-in" type="number" min="0" data-res="${j.id}" data-lado="gm" value="${j.gols_mandante??''}" aria-label="resultado ${j.mandante}">
       <span class="x">×</span>
       <input class="placar-in" type="number" min="0" data-res="${j.id}" data-lado="gv" value="${j.gols_visitante??''}" aria-label="resultado ${j.visitante}">
