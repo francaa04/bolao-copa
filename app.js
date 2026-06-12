@@ -178,7 +178,7 @@ async function renderPalpites(){
       <h3>⭐ Palpites especiais <small style="font-weight:400;color:var(--txt2);font-size:12px">(50 pts cada)</small></h3>
       <p class="hint">${especiaisAbertos()
         ? "Escolha antes do primeiro jogo (11/06 16:00). Depois disso, congela. Ficam visíveis a todos."
-        : "⛔ Mercado fechado. Aguarde o resultado."}</p>
+        : "⛔ Mercado fechado — começou no primeiro jogo. Seus palpites estão congelados."}</p>
       <div class="esp-row">
         <label>Campeão</label>
         <select class="inp" id="sel-campeao" ${especiaisAbertos()?"":"disabled"}><option value="">— escolher —</option>
@@ -376,7 +376,10 @@ async function renderRevelados(){
     <table class="esp-tab"><tr><th>Jogador</th><th>Campeão</th><th>Artilheiro</th></tr>`;
   (perfis||[]).forEach(p=>{
     const e = espMap[p.id]||{};
-    h += `<tr><td>@${p.usuario}</td><td>${e.campeao||'—'}</td><td>${e.artilheiro||'—'}</td></tr>`;
+    const artTxt = e.artilheiro
+      ? `${e.artilheiro}${e.artilheiro_ok ? ' <span class="acerto">✓</span>' : ''}`
+      : '—';
+    h += `<tr><td>@${p.usuario}</td><td>${e.campeao||'—'}</td><td>${artTxt}</td></tr>`;
   });
   h += `</table></div>`;
 
@@ -410,19 +413,42 @@ async function renderRevelados(){
 async function renderModerador(){
   const cont = el("aba-moderador");
   const { data: cfg } = await sb.from("config").select("*").single();
+  const { data: perfis } = await sb.from("perfis").select("id,usuario");
+  const { data: esp } = await sb.from("palpites_especiais").select("*");
+  const espMap = {}; (esp||[]).forEach(e=>espMap[e.user_id]=e);
 
   let h = `<div class="mod-aviso">⚙ Você lança os resultados aqui. O placar dos palpites trava sozinho no horário de cada jogo — você não precisa abrir nem fechar nada.</div>`;
 
-  h += `<div class="esp-card"><h3>🏆 Gabarito dos especiais</h3>
-    <p class="hint">Preencha só no fim da Copa. Define quem ganha os 50+50.</p>
+  // Gabarito do CAMPEÃO (continua automático por texto)
+  h += `<div class="esp-card"><h3>🏆 Gabarito do campeão</h3>
+    <p class="hint">Preencha no fim da Copa. Quem escreveu esta seleção ganha 50 pts (automático).</p>
     <div class="esp-row"><label>Campeão</label>
       <select class="inp" id="cfg-campeao"><option value="">—</option>
         ${SELECOES.map(s=>`<option ${cfg?.campeao_real===s?'selected':''}>${s}</option>`).join("")}
       </select></div>
-    <div class="esp-row"><label>Artilheiro</label>
-      <input class="inp" id="cfg-artilheiro" value="${(cfg?.artilheiro_real||'').replace(/"/g,'&quot;')}" placeholder="nome do jogador"></div>
-    <button class="btn" style="margin-top:6px" id="bt-cfg">Salvar gabarito</button>
+    <button class="btn" style="margin-top:6px" id="bt-cfg">Salvar campeão</button>
   </div>`;
+
+  // Validação MANUAL do ARTILHEIRO (joinha por pessoa)
+  h += `<div class="esp-card"><h3>⚽ Validar artilheiro <small style="font-weight:400;color:var(--txt2);font-size:12px">(50 pts)</small></h3>
+    <p class="hint">O texto de cada um fica intocado. Você marca quem acertou — mesmo apelidos como "Furacão" valem se você validar.</p>`;
+  if(!perfis || !perfis.length){
+    h += `<p class="oculto">Nenhum participante ainda.</p>`;
+  } else {
+    perfis.forEach(p=>{
+      const e = espMap[p.id] || {};
+      const palpite = e.artilheiro || "—";
+      const ok = !!e.artilheiro_ok;
+      const temPalpite = !!e.artilheiro;
+      h += `<div class="mod-jogo">
+        <div class="nomes">@${p.usuario}<div class="data">palpite: <b style="color:var(--txt)">${palpite}</b></div></div>
+        <button class="chip ${ok?'on':''}" data-valida="${p.id}" ${temPalpite?'':'disabled'} style="${temPalpite?'':'opacity:.4'}">
+          ${ok?'✓ acertou':'marcar acerto'}
+        </button>
+      </div>`;
+    });
+  }
+  h += `</div>`;
 
   h += `<h3 style="margin:18px 0 10px;font-size:16px">📋 Lançar resultados</h3>`;
   JOGOS.forEach(j=>{
@@ -437,11 +463,23 @@ async function renderModerador(){
 
   el("bt-cfg").onclick = async ()=>{
     const { error } = await sb.from("config").update({
-      campeao_real: el("cfg-campeao").value||null,
-      artilheiro_real: el("cfg-artilheiro").value.trim()||null
+      campeao_real: el("cfg-campeao").value||null
     }).eq("id",1);
-    flash(error?"⚠ Erro":"✓ Gabarito salvo");
+    flash(error?"⚠ Erro":"✓ Campeão salvo");
   };
+  // botões de validação do artilheiro (joinha por pessoa)
+  cont.querySelectorAll("[data-valida]").forEach(bt=>{
+    bt.onclick = async ()=>{
+      const uid = bt.dataset.valida;
+      const ligando = !bt.classList.contains("on"); // novo estado
+      const { error } = await sb.from("palpites_especiais")
+        .update({ artilheiro_ok: ligando }).eq("user_id", uid);
+      if(error){ flash("⚠ Erro ao validar"); return; }
+      bt.classList.toggle("on", ligando);
+      bt.textContent = ligando ? "✓ acertou" : "marcar acerto";
+      flash(ligando ? "✓ Acerto marcado" : "Acerto removido");
+    };
+  });
   cont.querySelectorAll("[data-res]").forEach(inp=>{
     inp.onchange = ()=>salvarResultado(inp.dataset.res);
   });
