@@ -10,6 +10,13 @@ const SUPABASE_KEY  = "sb_publishable_9p02LnK8pJsNonMfUu3-xA_Q5_SzE4F";
 // Isso permite login por usuário sem pedir e-mail. Não precisa mexer.
 const DOMINIO_FAKE = "@bolao.local";
 
+// PRAZO DOS PALPITES ESPECIAIS (campeão e artilheiro).
+// Depois deste horário, ninguém pode mais escolher/mudar — fica congelado.
+// Padrão: apito do primeiro jogo (11/06/2026 16:00, horário de Brasília).
+// Para mudar, troque a data abaixo (mantenha o formato com -03:00 no fim).
+const PRAZO_ESPECIAIS = "2026-06-11T16:00:00-03:00";
+function especiaisAbertos(){ return Date.now() < new Date(PRAZO_ESPECIAIS).getTime(); }
+
 // ------------------------------------------------------------
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -169,18 +176,20 @@ async function renderPalpites(){
   let h = `
     <div class="esp-card">
       <h3>⭐ Palpites especiais <small style="font-weight:400;color:var(--txt2);font-size:12px">(50 pts cada)</small></h3>
-      <p class="hint">Você pode mudar quando quiser. Ficam visíveis a todos.</p>
+      <p class="hint">${especiaisAbertos()
+        ? "Escolha antes do primeiro jogo (11/06 16:00). Depois disso, congela. Ficam visíveis a todos."
+        : "⛔ Mercado fechado — começou no primeiro jogo. Seus palpites estão congelados."}</p>
       <div class="esp-row">
         <label>Campeão</label>
-        <select class="inp" id="sel-campeao"><option value="">— escolher —</option>
+        <select class="inp" id="sel-campeao" ${especiaisAbertos()?"":"disabled"}><option value="">— escolher —</option>
           ${SELECOES.map(s=>`<option ${s===campeao?"selected":""}>${s}</option>`).join("")}
         </select>
       </div>
       <div class="esp-row">
         <label>Artilheiro</label>
-        <input class="inp" id="in-artilheiro" placeholder="nome do jogador" value="${artilheiro.replace(/"/g,'&quot;')}">
+        <input class="inp" id="in-artilheiro" placeholder="nome do jogador" value="${artilheiro.replace(/"/g,'&quot;')}" ${especiaisAbertos()?"":"disabled"}>
       </div>
-      <button class="btn" style="margin-top:6px" id="bt-esp">Salvar especiais</button>
+      ${especiaisAbertos() ? `<button class="btn" style="margin-top:6px" id="bt-esp">Salvar especiais</button>` : ``}
     </div>
 
     <div class="filtros">
@@ -196,7 +205,8 @@ async function renderPalpites(){
   `;
   cont.innerHTML = h;
 
-  el("bt-esp").onclick = salvarEspeciais;
+  const btEsp = el("bt-esp");
+  if(btEsp) btEsp.onclick = salvarEspeciais;
   cont.querySelectorAll("[data-rod]").forEach(b=>b.onclick=()=>{
     filtroRodada = b.dataset.rod==="todas"?"todas":+b.dataset.rod;
     cont.querySelectorAll("[data-rod]").forEach(x=>x.classList.toggle("on", x.dataset.rod===b.dataset.rod));
@@ -261,16 +271,57 @@ async function salvarPalpite(jogoId){
   if(gm===null || gv===null) return; // só salva quando os dois estão preenchidos
   if(gm<0 || gv<0) return;
 
+  // TRAVA EM TEMPO REAL: reconfere o horário AGORA, mesmo sem recarregar a página.
+  const jogo = JOGOS.find(j=>j.id===jogoId);
+  if(jogo && !jogoAberto(jogo)){
+    // jogo já começou: trava os campos na tela e restaura o palpite anterior (ou vazio)
+    gmEl.disabled = true; gvEl.disabled = true;
+    const ant = MEUS[jogoId];
+    gmEl.value = ant ? ant.gm : "";
+    gvEl.value = ant ? ant.gv : "";
+    flash("⛔ Jogo já começou — não dá mais pra palpitar");
+    return;
+  }
+
   const { error } = await sb.from("palpites").upsert({
     user_id: EU.id, jogo_id: jogoId, gols_mandante: gm, gols_visitante: gv, atualizado_em: new Date().toISOString()
   }, { onConflict: "user_id,jogo_id" });
 
-  if(error){ flash("⚠ Não salvou — jogo já começou?"); return; }
+  if(error){
+    // o banco recusou (provavelmente jogo começou entre o clique e o envio): desfaz na tela
+    gmEl.disabled = true; gvEl.disabled = true;
+    const ant = MEUS[jogoId];
+    gmEl.value = ant ? ant.gm : "";
+    gvEl.value = ant ? ant.gv : "";
+    flash("⛔ Não foi salvo — o jogo já começou");
+    return;
+  }
   MEUS[jogoId] = { gm, gv };
   flash("✓ Palpite salvo");
 }
 
+// RELÓGIO INTERNO: a cada 30s, trava na tela os jogos que já começaram,
+// sem precisar recarregar a página. Fecha a brecha de deixar a aba aberta.
+function travarJogosVencidos(){
+  if(ABA !== "palpites") return;
+  JOGOS.forEach(j=>{
+    if(!jogoAberto(j)){
+      const gm = document.querySelector(`[data-jogo="${j.id}"][data-lado="gm"]`);
+      const gv = document.querySelector(`[data-jogo="${j.id}"][data-lado="gv"]`);
+      if(gm && !gm.disabled){
+        gm.disabled = true; gv.disabled = true;
+        // atualiza o selo "aberto" -> "fechado" no card
+        const card = gm.closest(".jogo");
+        const selo = card && card.querySelector(".estado");
+        if(selo){ selo.classList.remove("aberto"); selo.classList.add("fechado"); selo.textContent = "fechado"; }
+      }
+    }
+  });
+}
+setInterval(travarJogosVencidos, 30000); // a cada 30 segundos
+
 async function salvarEspeciais(){
+  if(!especiaisAbertos()){ flash("⛔ Mercado fechado — não dá mais pra mudar"); return; }
   const campeao = el("sel-campeao").value || null;
   const artilheiro = el("in-artilheiro").value.trim() || null;
   const { error } = await sb.from("palpites_especiais").upsert({
