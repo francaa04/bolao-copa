@@ -30,6 +30,7 @@ let filtroFase = "grupos";   // "grupos" ou uma fase do mata-mata
 let revGrupo = "todos";
 let revRodada = "todas";
 let revFase = "grupos";
+let modFase = "grupos";   // fase selecionada no painel do moderador
 
 // ------------------------------------------------------------
 // FASES DO MATA-MATA
@@ -113,10 +114,29 @@ function temResultado(j){ return j.gols_mandante !== null && j.gols_visitante !=
 
 function pontos(p, j){
   if(!p || !temResultado(j)) return null;
-  if(p.gm === j.gols_mandante && p.gv === j.gols_visitante) return 15;
-  const s=(x)=>Math.sign(x);
-  if(s(p.gm-p.gv) === s(j.gols_mandante-j.gols_visitante)) return 5;
-  return 0;
+  // ----- pontos dos 90 minutos (vale para grupos E mata-mata) -----
+  let pts;
+  if(p.gm === j.gols_mandante && p.gv === j.gols_visitante) pts = 15;
+  else {
+    const s=(x)=>Math.sign(x);
+    pts = (s(p.gm-p.gv) === s(j.gols_mandante-j.gols_visitante)) ? 5 : 0;
+  }
+  // ----- pontos extras: só em mata-mata e só se o jogo REALMENTE foi além -----
+  if(ehMata(j.grupo)){
+    // +5 se o jogo foi à prorrogação (ou além) e acertou quem venceu nela
+    if((j.ate_onde === "prorrogacao" || j.ate_onde === "penaltis")
+       && j.prorrogacao_result && p.palpite_prorrogacao
+       && p.palpite_prorrogacao === j.prorrogacao_result){
+      pts += 5;
+    }
+    // +5 se o jogo foi aos pênaltis e acertou quem venceu neles
+    if(j.ate_onde === "penaltis"
+       && j.penaltis_vencedor && p.palpite_penaltis
+       && p.palpite_penaltis === j.penaltis_vencedor){
+      pts += 5;
+    }
+  }
+  return pts;
 }
 
 function flash(txt){
@@ -194,7 +214,7 @@ async function iniciarApp(){
   // meus palpites
   const { data: meus } = await sb.from("palpites").select("*").eq("user_id", uid);
   MEUS = {};
-  (meus||[]).forEach(p => MEUS[p.jogo_id] = { gm:p.gols_mandante, gv:p.gols_visitante });
+  (meus||[]).forEach(p => MEUS[p.jogo_id] = { gm:p.gols_mandante, gv:p.gols_visitante, palpite_prorrogacao:p.palpite_prorrogacao, palpite_penaltis:p.palpite_penaltis });
 
   // mostrar app
   el("tela-login").classList.add("hidden");
@@ -340,6 +360,7 @@ function renderListaJogos(){
             data-jogo="${j.id}" data-lado="gv" value="${p?p.gv:''}" ${aberto?'':'disabled'} aria-label="gols ${j.visitante}">
           <div class="time ${brV}">${bandeira(j.visitante,18)} ${j.visitante}</div>
         </div>
+        ${ehMata(j.grupo) ? blocoMataMata(j, p, aberto) : ''}
         ${temResultado(j) ? `<div class="resultado-real">Resultado: ${j.gols_mandante} × ${j.gols_visitante} ${pt!==null?`<span class="pts-tag pts-${pt}">+${pt} pts</span>`:''}</div>`:''}
       </div>`;
   });
@@ -348,6 +369,44 @@ function renderListaJogos(){
   lista.querySelectorAll(".placar-in").forEach(inp=>{
     inp.onchange = () => salvarPalpite(inp.dataset.jogo);
   });
+  // cliques nos seletores de prorrogação/pênaltis
+  lista.querySelectorAll(".mm-op").forEach(btn=>{
+    btn.onclick = () => {
+      if(btn.classList.contains("lock")) return;
+      const jogo = btn.dataset.jogo, tipo = btn.dataset.tipo, val = btn.dataset.val;
+      // marca visualmente (desmarca os irmãos do mesmo tipo)
+      btn.parentElement.querySelectorAll(".mm-op").forEach(s=>s.classList.toggle("on", s===btn));
+      salvarPalpiteMata(jogo, tipo, val);
+    };
+  });
+}
+
+// HTML dos seletores de prorrogação e pênaltis (só mata-mata)
+function blocoMataMata(j, p, aberto){
+  const lock = aberto ? '' : 'lock';
+  const proSel = p?.palpite_prorrogacao || '';
+  const penSel = p?.palpite_penaltis || '';
+  const op = (tipo, val, txt, sel) =>
+    `<div class="mm-op ${sel===val?'on':''} ${lock}" data-jogo="${j.id}" data-tipo="${tipo}" data-val="${val}">${txt}</div>`;
+  return `
+    <div class="mm-extra">
+      <div class="mm-linha">
+        <div class="mm-pergunta">Se for pra prorrogação, quem vence?</div>
+        <div class="mm-ops">
+          ${op('pro','M', j.mandante, proSel)}
+          ${op('pro','E','Empate', proSel)}
+          ${op('pro','V', j.visitante, proSel)}
+        </div>
+      </div>
+      <div class="mm-linha">
+        <div class="mm-pergunta">Se for pra pênaltis, quem vence?</div>
+        <div class="mm-ops">
+          ${op('pen','M', j.mandante, penSel)}
+          ${op('pen','V', j.visitante, penSel)}
+        </div>
+      </div>
+      <div class="mm-dica">dica: você pode pontuar aqui independente do seu palpite para os 90 minutos!</div>
+    </div>`;
 }
 
 async function salvarPalpite(jogoId){
@@ -383,8 +442,27 @@ async function salvarPalpite(jogoId){
     flash("⛔ Não foi salvo — o jogo já começou");
     return;
   }
-  MEUS[jogoId] = { gm, gv };
+  MEUS[jogoId] = { ...(MEUS[jogoId]||{}), gm, gv };
   flash("✓ Palpite salvo");
+}
+
+// Salva o palpite de prorrogação ('pro') ou pênaltis ('pen') de um jogo de mata-mata.
+async function salvarPalpiteMata(jogoId, tipo, val){
+  const jogo = JOGOS.find(j=>j.id===jogoId);
+  if(jogo && !jogoAberto(jogo)){ flash("⛔ Jogo já começou"); return; }
+
+  const campo = tipo==='pro' ? 'palpite_prorrogacao' : 'palpite_penaltis';
+  // guarda no estado local
+  MEUS[jogoId] = { ...(MEUS[jogoId]||{}), [campo]: val };
+
+  const { error } = await sb.from("palpites").upsert({
+    user_id: EU.id, jogo_id: jogoId,
+    [campo]: val,
+    atualizado_em: new Date().toISOString()
+  }, { onConflict: "user_id,jogo_id" });
+
+  if(error){ flash("⛔ Erro ao salvar"); console.error(error); }
+  else flash("✓ Palpite salvo");
 }
 
 // RELÓGIO INTERNO: a cada 30s, trava na tela os jogos que já começaram,
@@ -691,20 +769,26 @@ async function renderModerador(){
   }
   h += `</div></div>`;
 
-  h += `<h3 style="margin:18px 0 10px;font-size:16px">📋 Lançar resultados</h3>`;
-  JOGOS.forEach(j=>{
-    h += `<div class="mod-jogo">
-      <div class="nomes">${bandeira(j.mandante,16)} ${j.mandante} × ${j.visitante} ${bandeira(j.visitante,16)}<div class="data">${rotuloFase(j.grupo)} · ${fmtData(j.inicio)} ${fmtHora(j.inicio)}h</div></div>
-      <input class="placar-in" type="number" min="0" data-res="${j.id}" data-lado="gm" value="${j.gols_mandante??''}" aria-label="resultado ${j.mandante}">
-      <span class="x">×</span>
-      <input class="placar-in" type="number" min="0" data-res="${j.id}" data-lado="gv" value="${j.gols_visitante??''}" aria-label="resultado ${j.visitante}">
-    </div>`;
-  });
+  h += `<h3 style="margin:18px 0 10px;font-size:16px">📋 Lançar resultados</h3>
+    <div class="filtros" id="mod-filtros-fase">
+      <span class="lbl">Fase:</span>
+      <button class="chip ${modFase==='grupos'?'on':''}" data-modfase="grupos">Fase de grupos</button>
+      ${FASES_MATA.filter(f=>JOGOS.some(j=>j.grupo===f)).map(f=>`<button class="chip ${modFase===f?'on':''}" data-modfase="${f}">${FASE_LABEL[f]}</button>`).join("")}
+    </div>
+    <div id="mod-lista-jogos"></div>`;
   cont.innerHTML = h;
 
   // abrir/fechar o accordion de validação do artilheiro
   const toggleArt = cont.querySelector('[data-toggle="valid-art"]');
   if(toggleArt) toggleArt.onclick = ()=> toggleArt.closest(".acc").classList.toggle("aberto");
+
+  // seletor de fase do moderador
+  cont.querySelectorAll("[data-modfase]").forEach(b=>b.onclick=()=>{
+    modFase = b.dataset.modfase;
+    cont.querySelectorAll("[data-modfase]").forEach(x=>x.classList.toggle("on", x.dataset.modfase===b.dataset.modfase));
+    renderModListaJogos();
+  });
+  renderModListaJogos();
 
   el("bt-cfg").onclick = async ()=>{
     const { error } = await sb.from("config").update({
@@ -725,9 +809,107 @@ async function renderModerador(){
       flash(ligando ? "✓ Acerto marcado" : "Acerto removido");
     };
   });
-  cont.querySelectorAll("[data-res]").forEach(inp=>{
+}
+
+// Desenha a lista de jogos no painel do moderador, filtrada pela fase selecionada.
+// Jogos de mata-mata ganham controles extras (até onde foi + vencedor prorrog/pênaltis).
+function renderModListaJogos(){
+  const lista = el("mod-lista-jogos");
+  let js;
+  if(modFase === "grupos") js = JOGOS.filter(j => !ehMata(j.grupo));
+  else js = JOGOS.filter(j => j.grupo === modFase);
+
+  if(!js.length){ lista.innerHTML = `<p class="vazio">Nenhum jogo nesta fase.</p>`; return; }
+
+  let h = ""; let ultimoDia = "";
+  js.forEach(j=>{
+    const diaKey = fmtData(j.inicio);
+    if(diaKey !== ultimoDia){ h += `<div class="dia-sep">${diaKey}</div>`; ultimoDia = diaKey; }
+    h += `<div class="mod-jogo" style="flex-direction:column;align-items:stretch">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <div class="nomes">${bandeira(j.mandante,16)} ${j.mandante} × ${j.visitante} ${bandeira(j.visitante,16)}<div class="data">${fmtData(j.inicio)} ${fmtHora(j.inicio)}h</div></div>
+        <input class="placar-in" type="number" min="0" data-res="${j.id}" data-lado="gm" value="${j.gols_mandante??''}" aria-label="resultado ${j.mandante}">
+        <span class="x">×</span>
+        <input class="placar-in" type="number" min="0" data-res="${j.id}" data-lado="gv" value="${j.gols_visitante??''}" aria-label="resultado ${j.visitante}">
+      </div>`;
+    // controles extras só pra mata-mata
+    if(ehMata(j.grupo)){
+      const ate = j.ate_onde || '90';
+      const proR = j.prorrogacao_result || '';
+      const penV = j.penaltis_vencedor || '';
+      const opAte = (val,txt) => `<div class="mm-op ${ate===val?'on':''}" data-modate="${j.id}" data-val="${val}">${txt}</div>`;
+      const opPro = (val,txt) => `<div class="mm-op ${proR===val?'on':''}" data-modpro="${j.id}" data-val="${val}">${txt}</div>`;
+      const opPen = (val,txt) => `<div class="mm-op ${penV===val?'on':''}" data-modpen="${j.id}" data-val="${val}">${txt}</div>`;
+      h += `<div class="mm-extra" style="width:100%">
+        <div class="mm-linha">
+          <div class="mm-pergunta">Até onde foi o jogo?</div>
+          <div class="mm-ops">
+            ${opAte('90','90 min')}
+            ${opAte('prorrogacao','Prorrogação')}
+            ${opAte('penaltis','Pênaltis')}
+          </div>
+        </div>
+        <div class="mm-linha ${ate==='90'?'hidden':''}" data-modpro-linha="${j.id}">
+          <div class="mm-pergunta">Quem venceu a prorrogação?</div>
+          <div class="mm-ops">
+            ${opPro('M', j.mandante)}
+            ${opPro('E','Empate')}
+            ${opPro('V', j.visitante)}
+          </div>
+        </div>
+        <div class="mm-linha ${ate==='penaltis'?'':'hidden'}" data-modpen-linha="${j.id}">
+          <div class="mm-pergunta">Quem venceu nos pênaltis?</div>
+          <div class="mm-ops">
+            ${opPen('M', j.mandante)}
+            ${opPen('V', j.visitante)}
+          </div>
+        </div>
+      </div>`;
+    }
+    h += `</div>`;
+  });
+  lista.innerHTML = h;
+
+  // salvar placar
+  lista.querySelectorAll("[data-res]").forEach(inp=>{
     inp.onchange = ()=>salvarResultado(inp.dataset.res);
   });
+  // "até onde foi"
+  lista.querySelectorAll("[data-modate]").forEach(btn=>{
+    btn.onclick = ()=>{
+      const jogoId = btn.dataset.modate, val = btn.dataset.val;
+      btn.parentElement.querySelectorAll(".mm-op").forEach(s=>s.classList.toggle("on", s===btn));
+      // mostra/esconde as perguntas seguintes conforme a escolha
+      const proLinha = lista.querySelector(`[data-modpro-linha="${jogoId}"]`);
+      const penLinha = lista.querySelector(`[data-modpen-linha="${jogoId}"]`);
+      if(proLinha) proLinha.classList.toggle("hidden", val==='90');
+      if(penLinha) penLinha.classList.toggle("hidden", val!=='penaltis');
+      salvarResultadoExtra(jogoId, 'ate_onde', val);
+    };
+  });
+  // vencedor da prorrogação
+  lista.querySelectorAll("[data-modpro]").forEach(btn=>{
+    btn.onclick = ()=>{
+      btn.parentElement.querySelectorAll(".mm-op").forEach(s=>s.classList.toggle("on", s===btn));
+      salvarResultadoExtra(btn.dataset.modpro, 'prorrogacao_result', btn.dataset.val);
+    };
+  });
+  // vencedor dos pênaltis
+  lista.querySelectorAll("[data-modpen]").forEach(btn=>{
+    btn.onclick = ()=>{
+      btn.parentElement.querySelectorAll(".mm-op").forEach(s=>s.classList.toggle("on", s===btn));
+      salvarResultadoExtra(btn.dataset.modpen, 'penaltis_vencedor', btn.dataset.val);
+    };
+  });
+}
+
+// Salva um campo extra de resultado do mata-mata (ate_onde, prorrogacao_result, penaltis_vencedor)
+async function salvarResultadoExtra(jogoId, campo, val){
+  const { error } = await sb.from("jogos").update({ [campo]: val }).eq("id", jogoId);
+  if(error){ flash("⚠ Erro ao salvar"); console.error(error); return; }
+  const j = JOGOS.find(x=>x.id===jogoId);
+  if(j) j[campo] = val;
+  flash("✓ Salvo");
 }
 
 async function salvarResultado(jogoId){
