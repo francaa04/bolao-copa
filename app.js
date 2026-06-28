@@ -391,7 +391,7 @@ function blocoMataMata(j, p, aberto){
   return `
     <div class="mm-extra">
       <div class="mm-linha">
-        <div class="mm-pergunta">Se for pra prorrogação, quem vence?</div>
+        <div class="mm-pergunta">Se for pra prorrogação, quem vence? (5 pontos)</div>
         <div class="mm-ops">
           ${op('pro','M', j.mandante, proSel)}
           ${op('pro','E','Empate', proSel)}
@@ -399,7 +399,7 @@ function blocoMataMata(j, p, aberto){
         </div>
       </div>
       <div class="mm-linha">
-        <div class="mm-pergunta">Se for pra pênaltis, quem vence?</div>
+        <div class="mm-pergunta">Se for pra pênaltis, quem vence? (5 pontos)</div>
         <div class="mm-ops">
           ${op('pen','M', j.mandante, penSel)}
           ${op('pen','V', j.visitante, penSel)}
