@@ -26,8 +26,40 @@ let MEUS = {};          // meus palpites { jogo_id: {gm,gv} }
 let ABA = "palpites";
 let filtroGrupo = "todos";
 let filtroRodada = "todas";
+let filtroFase = "grupos";   // "grupos" ou uma fase do mata-mata
 let revGrupo = "todos";
 let revRodada = "todas";
+let revFase = "grupos";
+
+// ------------------------------------------------------------
+// FASES DO MATA-MATA
+// O campo "grupo" guarda "A".."L" na fase de grupos, ou o nome da
+// fase no mata-mata ("16-avos", "Oitavas", "Quartas", "Semi",
+// "3º lugar", "Final"). Estas funções tratam essa distinção.
+// ------------------------------------------------------------
+const FASES_MATA = ["16-avos", "Oitavas", "Quartas", "Semi", "3º lugar", "Final"];
+// Rótulo bonito de cada fase do mata-mata
+const FASE_LABEL = {
+  "16-avos": "16-avos de final",
+  "Oitavas": "Oitavas de final",
+  "Quartas": "Quartas de final",
+  "Semi": "Semifinal",
+  "3º lugar": "Disputa de 3º lugar",
+  "Final": "Final",
+};
+// É um jogo de mata-mata? (grupo não é uma única letra A-L)
+function ehMata(grupo){ return FASES_MATA.includes(grupo); }
+// Rótulo a exibir no card: "Grupo A" para grupos, "16-avos de final" para mata-mata
+function rotuloFase(grupo){
+  return ehMata(grupo) ? (FASE_LABEL[grupo] || grupo) : ("Grupo " + grupo);
+}
+// Ordem de uma fase para ordenar a tela (grupos primeiro, depois mata-mata em ordem)
+function ordemFase(grupo){
+  if (!ehMata(grupo)) return grupo.charCodeAt(0); // A=65, B=66... (grupos primeiro)
+  return 1000 + FASES_MATA.indexOf(grupo);        // mata-mata depois, na ordem certa
+}
+// Existe algum jogo de mata-mata cadastrado? (controla se mostra o seletor de fases)
+function temMataMata(){ return JOGOS.some(j => ehMata(j.grupo)); }
 
 const $ = (s) => document.querySelector(s);
 const el = (id) => document.getElementById(id);
@@ -169,6 +201,8 @@ async function iniciarApp(){
   el("tela-app").classList.remove("hidden");
   el("user-nome").textContent = "@" + EU.usuario;
   if(EU.moderador){ el("user-mod").classList.remove("hidden"); el("tab-mod").classList.remove("hidden"); }
+  // aba de chaveamento aparece quando houver jogos de mata-mata cadastrados
+  if(temMataMata()){ el("tab-chave").classList.remove("hidden"); }
 
   renderAba();
 }
@@ -179,7 +213,7 @@ async function iniciarApp(){
 function trocarAba(nome){
   ABA = nome;
   document.querySelectorAll("nav.tabs button").forEach(b=>b.classList.toggle("on", b.dataset.aba===nome));
-  ["palpites","ranking","revelados","moderador"].forEach(a=>{
+  ["palpites","ranking","revelados","chave","moderador"].forEach(a=>{
     el("aba-"+a).classList.toggle("hidden", a!==nome);
   });
   renderAba();
@@ -188,6 +222,7 @@ function renderAba(){
   if(ABA==="palpites") renderPalpites();
   if(ABA==="ranking") renderRanking();
   if(ABA==="revelados") renderRevelados();
+  if(ABA==="chave") renderChave();
   if(ABA==="moderador") renderModerador();
 }
 
@@ -221,14 +256,19 @@ async function renderPalpites(){
       ${especiaisAbertos() ? `<button class="btn" style="margin-top:6px" id="bt-esp">Salvar especiais</button>` : ``}
     </div>
 
-    <div class="filtros">
+    <div class="filtros" id="filtros-fase">
+      <span class="lbl">Fase:</span>
+      <button class="chip ${filtroFase==='grupos'?'on':''}" data-fase="grupos">Fase de grupos</button>
+      ${FASES_MATA.filter(f=>JOGOS.some(j=>j.grupo===f)).map(f=>`<button class="chip ${filtroFase===f?'on':''}" data-fase="${f}">${FASE_LABEL[f]}</button>`).join("")}
+    </div>
+    <div class="filtros ${filtroFase==='grupos'?'':'hidden'}" id="filtros-grupos-rodada">
       <span class="lbl">Rodada:</span>
       ${["todas",1,2,3].map(r=>`<button class="chip ${filtroRodada==r?'on':''}" data-rod="${r}">${r==="todas"?"todas":r+"ª"}</button>`).join("")}
     </div>
-    <div class="filtros">
+    <div class="filtros ${filtroFase==='grupos'?'':'hidden'}" id="filtros-grupos-letra">
       <span class="lbl">Grupo:</span>
       <button class="chip ${filtroGrupo==='todos'?'on':''}" data-grp="todos">todos</button>
-      ${grupos.map(g=>`<button class="chip ${filtroGrupo===g?'on':''}" data-grp="${g}">${g}</button>`).join("")}
+      ${[...new Set(JOGOS.filter(j=>!ehMata(j.grupo)).map(j=>j.grupo))].sort().map(g=>`<button class="chip ${filtroGrupo===g?'on':''}" data-grp="${g}">${g}</button>`).join("")}
     </div>
     <div id="lista-jogos"></div>
   `;
@@ -236,6 +276,16 @@ async function renderPalpites(){
 
   const btEsp = el("bt-esp");
   if(btEsp) btEsp.onclick = salvarEspeciais;
+  // seletor de FASE
+  cont.querySelectorAll("[data-fase]").forEach(b=>b.onclick=()=>{
+    filtroFase = b.dataset.fase;
+    cont.querySelectorAll("[data-fase]").forEach(x=>x.classList.toggle("on", x.dataset.fase===b.dataset.fase));
+    // mostra/esconde filtros de rodada e grupo (só na fase de grupos)
+    const mostra = filtroFase==="grupos";
+    el("filtros-grupos-rodada").classList.toggle("hidden", !mostra);
+    el("filtros-grupos-letra").classList.toggle("hidden", !mostra);
+    renderListaJogos();
+  });
   cont.querySelectorAll("[data-rod]").forEach(b=>b.onclick=()=>{
     filtroRodada = b.dataset.rod==="todas"?"todas":+b.dataset.rod;
     cont.querySelectorAll("[data-rod]").forEach(x=>x.classList.toggle("on", x.dataset.rod===b.dataset.rod));
@@ -252,10 +302,18 @@ async function renderPalpites(){
 
 function renderListaJogos(){
   const lista = el("lista-jogos");
-  let js = JOGOS.filter(j =>
-    (filtroGrupo==="todos" || j.grupo===filtroGrupo) &&
-    (filtroRodada==="todas" || j.rodada===filtroRodada)
-  );
+  let js;
+  if (filtroFase === "grupos") {
+    // fase de grupos: aplica filtros de rodada e grupo (letra)
+    js = JOGOS.filter(j =>
+      !ehMata(j.grupo) &&
+      (filtroGrupo==="todos" || j.grupo===filtroGrupo) &&
+      (filtroRodada==="todas" || j.rodada===filtroRodada)
+    );
+  } else {
+    // fase do mata-mata: mostra só os jogos daquela fase
+    js = JOGOS.filter(j => j.grupo === filtroFase);
+  }
   if(!js.length){ lista.innerHTML = `<p class="vazio">Nenhum jogo com esse filtro.</p>`; return; }
 
   let h = ""; let ultimoDia = "";
@@ -270,7 +328,7 @@ function renderListaJogos(){
     h += `
       <div class="jogo">
         <div class="jogo-topo">
-          <div class="jogo-meta"><span class="grp-tag">Grupo ${j.grupo}</span> ${fmtData(j.inicio)} · ${fmtHora(j.inicio)}h</div>
+          <div class="jogo-meta"><span class="grp-tag">${rotuloFase(j.grupo)}</span> ${fmtData(j.inicio)} · ${fmtHora(j.inicio)}h</div>
           <span class="estado ${aberto?'aberto':'fechado'}">${aberto?'aberto':'fechado'}</span>
         </div>
         <div class="confronto">
@@ -424,14 +482,19 @@ async function renderRevelados(){
       </div>
     </div>
 
-    <div class="filtros">
+    <div class="filtros" id="rev-filtros-fase">
+      <span class="lbl">Fase:</span>
+      <button class="chip ${revFase==='grupos'?'on':''}" data-revfase="grupos">Fase de grupos</button>
+      ${FASES_MATA.filter(f=>JOGOS.some(j=>j.grupo===f)).map(f=>`<button class="chip ${revFase===f?'on':''}" data-revfase="${f}">${FASE_LABEL[f]}</button>`).join("")}
+    </div>
+    <div class="filtros ${revFase==='grupos'?'':'hidden'}" id="rev-filtros-rodada">
       <span class="lbl">Rodada:</span>
       ${["todas",1,2,3].map(r=>`<button class="chip ${revRodada==r?'on':''}" data-revrod="${r}">${r==="todas"?"todas":r+"ª"}</button>`).join("")}
     </div>
-    <div class="filtros">
+    <div class="filtros ${revFase==='grupos'?'':'hidden'}" id="rev-filtros-grupo">
       <span class="lbl">Grupo:</span>
       <button class="chip ${revGrupo==='todos'?'on':''}" data-revgrp="todos">todos</button>
-      ${grupos.map(g=>`<button class="chip ${revGrupo===g?'on':''}" data-revgrp="${g}">${g}</button>`).join("")}
+      ${[...new Set(JOGOS.filter(j=>!ehMata(j.grupo)).map(j=>j.grupo))].sort().map(g=>`<button class="chip ${revGrupo===g?'on':''}" data-revgrp="${g}">${g}</button>`).join("")}
     </div>
     <div id="rev-lista"></div>
   `;
@@ -444,6 +507,14 @@ async function renderRevelados(){
   cont.querySelector('[data-toggle="especiais"]').onclick = (ev)=>{
     ev.currentTarget.closest(".acc").classList.toggle("aberto");
   };
+  cont.querySelectorAll("[data-revfase]").forEach(b=>b.onclick=()=>{
+    revFase = b.dataset.revfase;
+    cont.querySelectorAll("[data-revfase]").forEach(x=>x.classList.toggle("on",x.dataset.revfase===b.dataset.revfase));
+    const mostra = revFase==="grupos";
+    el("rev-filtros-rodada").classList.toggle("hidden", !mostra);
+    el("rev-filtros-grupo").classList.toggle("hidden", !mostra);
+    renderRevList();
+  });
   cont.querySelectorAll("[data-revrod]").forEach(b=>b.onclick=()=>{
     revRodada = b.dataset.revrod==="todas"?"todas":+b.dataset.revrod;
     cont.querySelectorAll("[data-revrod]").forEach(x=>x.classList.toggle("on",x.dataset.revrod===b.dataset.revrod));
@@ -464,10 +535,17 @@ function renderRevList(){
   const lista = el("rev-lista");
   const { porJogo, nome } = cont._revData || { porJogo:{}, nome:{} };
 
-  // só jogos fechados; aplica filtro de grupo/rodada; mais recentes primeiro
+  // só jogos fechados; aplica filtro de fase/grupo/rodada; mais recentes primeiro
   let fechados = JOGOS
     .filter(j => !jogoAberto(j))
-    .filter(j => (revGrupo==="todos"||j.grupo===revGrupo) && (revRodada==="todas"||j.rodada===revRodada))
+    .filter(j => {
+      if (revFase === "grupos") {
+        return !ehMata(j.grupo)
+          && (revGrupo==="todos"||j.grupo===revGrupo)
+          && (revRodada==="todas"||j.rodada===revRodada);
+      }
+      return j.grupo === revFase; // fase do mata-mata
+    })
     .sort((a,b)=>new Date(b.inicio)-new Date(a.inicio));
 
   if(!fechados.length){
@@ -491,7 +569,7 @@ function renderRevList(){
           <span class="seta">▶</span>
         </div>
         <div class="acc-corpo">
-          <p class="acc-pend" style="margin:2px 0 8px">Grupo ${j.grupo} · ${fmtData(j.inicio)} · ${ps.length} palpite${ps.length===1?'':'s'}</p>`;
+          <p class="acc-pend" style="margin:2px 0 8px">${rotuloFase(j.grupo)} · ${fmtData(j.inicio)} · ${ps.length} palpite${ps.length===1?'':'s'}</p>`;
     if(!ps.length){
       h += `<p class="oculto">Ninguém palpitou neste jogo.</p>`;
     } else {
@@ -514,6 +592,53 @@ function renderRevList(){
     cab.onclick = ()=> cab.closest(".acc").classList.toggle("aberto");
   });
 }
+
+// ============================================================
+//  ABA: CHAVEAMENTO (árvore do mata-mata)
+// ============================================================
+function renderChave(){
+  const cont = el("aba-chave");
+  const mata = JOGOS.filter(j => ehMata(j.grupo));
+  if(!mata.length){
+    cont.innerHTML = `<p class="chave-vazio">O mata-mata ainda não começou.<br>Os confrontos aparecem aqui conforme forem definidos.</p>`;
+    return;
+  }
+  // agrupa por fase, na ordem certa
+  const porFase = {};
+  mata.forEach(j => { (porFase[j.grupo] = porFase[j.grupo] || []).push(j); });
+  const fasesOrdenadas = Object.keys(porFase).sort((a,b)=>ordemFase(a)-ordemFase(b));
+
+  let h = "";
+  fasesOrdenadas.forEach(fase => {
+    const jogos = porFase[fase].sort((a,b)=>new Date(a.inicio)-new Date(b.inicio));
+    h += `<div class="chave-fase">
+      <div class="chave-fase-tit">${FASE_LABEL[fase] || fase}</div>`;
+    jogos.forEach(j => {
+      const tem = temResultado(j);
+      const gm = tem ? j.gols_mandante : "";
+      const gv = tem ? j.gols_visitante : "";
+      // destaque do vencedor (só quando há resultado e não é empate)
+      let clsM = "", clsV = "";
+      if(tem && j.gols_mandante !== j.gols_visitante){
+        if(j.gols_mandante > j.gols_visitante){ clsM = "venceu"; clsV = "perdeu"; }
+        else { clsV = "venceu"; clsM = "perdeu"; }
+      }
+      h += `<div class="chave-jogo">
+        <div class="chave-lado ${clsM}">
+          ${bandeira(j.mandante,16)}<span class="nome">${j.mandante}</span><span class="gol">${gm}</span>
+        </div>
+        <div class="chave-vs">VS</div>
+        <div class="chave-lado ${clsV}">
+          ${bandeira(j.visitante,16)}<span class="nome">${j.visitante}</span><span class="gol">${gv}</span>
+        </div>
+        <div class="chave-data">${fmtData(j.inicio)} · ${fmtHora(j.inicio)}h${j.gols_mandante===j.gols_visitante && tem ? ' · decidido nos pênaltis' : ''}</div>
+      </div>`;
+    });
+    h += `</div>`;
+  });
+  cont.innerHTML = h;
+}
+
 
 // ============================================================
 //  ABA: MODERADOR
@@ -569,7 +694,7 @@ async function renderModerador(){
   h += `<h3 style="margin:18px 0 10px;font-size:16px">📋 Lançar resultados</h3>`;
   JOGOS.forEach(j=>{
     h += `<div class="mod-jogo">
-      <div class="nomes">${bandeira(j.mandante,16)} ${j.mandante} × ${j.visitante} ${bandeira(j.visitante,16)}<div class="data">Grupo ${j.grupo} · ${fmtData(j.inicio)} ${fmtHora(j.inicio)}h</div></div>
+      <div class="nomes">${bandeira(j.mandante,16)} ${j.mandante} × ${j.visitante} ${bandeira(j.visitante,16)}<div class="data">${rotuloFase(j.grupo)} · ${fmtData(j.inicio)} ${fmtHora(j.inicio)}h</div></div>
       <input class="placar-in" type="number" min="0" data-res="${j.id}" data-lado="gm" value="${j.gols_mandante??''}" aria-label="resultado ${j.mandante}">
       <span class="x">×</span>
       <input class="placar-in" type="number" min="0" data-res="${j.id}" data-lado="gv" value="${j.gols_visitante??''}" aria-label="resultado ${j.visitante}">
@@ -640,5 +765,5 @@ window.bolao = {
   get filtroGrupo(){return filtroGrupo}, set filtroGrupo(v){filtroGrupo=v},
   get filtroRodada(){return filtroRodada}, set filtroRodada(v){filtroRodada=v},
   jogoAberto, temResultado, pontos, fmtData, fmtHora,
-  renderPalpites, renderListaJogos
+  renderPalpites, renderListaJogos, renderChave, ehMata, rotuloFase
 };
