@@ -170,6 +170,23 @@
   .mod-jogo{background:var(--card);border:1px solid var(--borda);border-radius:12px;padding:12px 14px;margin-bottom:8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
   .mod-jogo .nomes{flex:1;font-size:14px;font-weight:600;min-width:150px}
   .mod-jogo .data{font-size:12px;color:var(--txt2)}
+
+  /* chaveamento (árvore do mata-mata) */
+  .chave-fase{margin-bottom:22px}
+  .chave-fase-tit{font-size:14px;font-weight:800;color:var(--amarelo);text-transform:uppercase;letter-spacing:.04em;margin-bottom:10px;display:flex;align-items:center;gap:8px}
+  .chave-fase-tit::after{content:"";flex:1;height:1px;background:var(--borda)}
+  .chave-jogo{background:var(--card);border:1px solid var(--borda);border-radius:12px;padding:10px 13px;margin-bottom:8px}
+  .chave-lado{display:flex;align-items:center;gap:8px;padding:5px 0;font-size:14px;font-weight:600}
+  .chave-lado .flag{flex-shrink:0}
+  .chave-lado .nome{flex:1}
+  .chave-lado .gol{font-size:16px;font-weight:800;min-width:24px;text-align:center;color:var(--txt)}
+  .chave-lado.venceu .nome{color:var(--verde-claro)}
+  .chave-lado.venceu .gol{color:var(--verde-claro)}
+  .chave-lado.perdeu{opacity:.5}
+  .chave-vs{text-align:center;font-size:10px;color:var(--txt2);font-weight:700;margin:1px 0}
+  .chave-data{font-size:11px;color:var(--txt2);margin-top:6px;text-align:center;border-top:1px solid var(--borda);padding-top:6px}
+  .chave-aguarda{color:var(--txt2);font-style:italic}
+  .chave-vazio{text-align:center;color:var(--txt2);padding:30px 20px;font-size:14px}
 </style>
 </head>
 <body>
@@ -209,6 +226,7 @@
       <button data-aba="palpites" class="on">Meus palpites</button>
       <button data-aba="ranking">Classificação</button>
       <button data-aba="revelados">Revelados</button>
+      <button data-aba="chave" id="tab-chave" class="hidden">Chaveamento</button>
       <button data-aba="moderador" id="tab-mod" class="hidden">Moderador</button>
     </nav>
   </header>
@@ -217,6 +235,7 @@
     <div id="aba-palpites"></div>
     <div id="aba-ranking" class="hidden"></div>
     <div id="aba-revelados" class="hidden"></div>
+    <div id="aba-chave" class="hidden"></div>
     <div id="aba-moderador" class="hidden"></div>
   </main>
 </div>
