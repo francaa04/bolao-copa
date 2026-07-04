@@ -62,6 +62,23 @@ function ordemFase(grupo){
 // Existe algum jogo de mata-mata cadastrado? (controla se mostra o seletor de fases)
 function temMataMata(){ return JOGOS.some(j => ehMata(j.grupo)); }
 
+// Fase a abrir por padrão = a do PRÓXIMO jogo que ainda não começou.
+// Conforme os dias passam e as fases terminam, o padrão avança sozinho.
+// Se todos os jogos já começaram (Copa acabou), usa a fase do último jogo.
+// Retorna "grupos" para jogos de grupo, ou o nome da fase de mata-mata.
+function faseAtualPadrao(){
+  if(!JOGOS.length) return "grupos";
+  const agora = Date.now();
+  // próximo jogo que ainda não começou (JOGOS já vem ordenado por início)
+  const proximos = JOGOS
+    .filter(j => new Date(j.inicio).getTime() > agora)
+    .sort((a,b) => new Date(a.inicio) - new Date(b.inicio));
+  const alvo = proximos.length
+    ? proximos[0]
+    : JOGOS.slice().sort((a,b) => new Date(b.inicio) - new Date(a.inicio))[0]; // último jogo
+  return ehMata(alvo.grupo) ? alvo.grupo : "grupos";
+}
+
 const $ = (s) => document.querySelector(s);
 const el = (id) => document.getElementById(id);
 const DIAS_PT = ["dom","seg","ter","qua","qui","sex","sáb"];
@@ -210,6 +227,12 @@ async function iniciarApp(){
   // jogos
   const { data: jogos } = await sb.from("jogos").select("*").order("inicio");
   JOGOS = jogos || [];
+
+  // fase padrão = a do PRÓXIMO jogo a acontecer (segue o calendário sozinho)
+  const fasePadrao = faseAtualPadrao();
+  filtroFase = fasePadrao;
+  revFase = fasePadrao;
+  modFase = fasePadrao;
 
   // meus palpites
   const { data: meus } = await sb.from("palpites").select("*").eq("user_id", uid);
@@ -391,7 +414,7 @@ function blocoMataMata(j, p, aberto){
   return `
     <div class="mm-extra">
       <div class="mm-linha">
-        <div class="mm-pergunta">Se for pra prorrogação, quem vence? (5 pontos)</div>
+        <div class="mm-pergunta">Se for pra prorrogação, quem vence?</div>
         <div class="mm-ops">
           ${op('pro','M', j.mandante, proSel)}
           ${op('pro','E','Empate', proSel)}
@@ -399,7 +422,7 @@ function blocoMataMata(j, p, aberto){
         </div>
       </div>
       <div class="mm-linha">
-        <div class="mm-pergunta">Se for pra pênaltis, quem vence? (5 pontos)</div>
+        <div class="mm-pergunta">Se for pra pênaltis, quem vence?</div>
         <div class="mm-ops">
           ${op('pen','M', j.mandante, penSel)}
           ${op('pen','V', j.visitante, penSel)}
@@ -946,6 +969,10 @@ window.bolao = {
   get MEUS(){return MEUS}, set MEUS(v){MEUS=v},
   get filtroGrupo(){return filtroGrupo}, set filtroGrupo(v){filtroGrupo=v},
   get filtroRodada(){return filtroRodada}, set filtroRodada(v){filtroRodada=v},
+  get filtroFase(){return filtroFase}, set filtroFase(v){filtroFase=v},
+  get revFase(){return revFase}, set revFase(v){revFase=v},
+  get modFase(){return modFase}, set modFase(v){modFase=v},
+  faseAtualPadrao,
   jogoAberto, temResultado, pontos, fmtData, fmtHora,
   renderPalpites, renderListaJogos, renderChave, ehMata, rotuloFase
 };
