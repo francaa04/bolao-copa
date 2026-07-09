@@ -20,6 +20,24 @@ function especiaisAbertos(){ return Date.now() < new Date(PRAZO_ESPECIAIS).getTi
 // ------------------------------------------------------------
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
+// Busca TODAS as linhas de uma tabela, em blocos, contornando o
+// limite padrão de 1000 linhas por request do Supabase.
+// (Sem isso, com +1000 palpites, os Revelados perdem gente.)
+async function buscarTodos(tabela, colunas="*"){
+  const BLOCO = 1000;
+  let todos = [];
+  let de = 0;
+  while(true){
+    const { data, error } = await sb.from(tabela).select(colunas).range(de, de+BLOCO-1);
+    if(error){ console.error("Erro ao paginar", tabela, error); break; }
+    if(!data || !data.length) break;
+    todos = todos.concat(data);
+    if(data.length < BLOCO) break; // último bloco
+    de += BLOCO;
+  }
+  return todos;
+}
+
 let EU = null;          // { id, usuario, moderador }
 let JOGOS = [];         // todos os jogos
 let MEUS = {};          // meus palpites { jogo_id: {gm,gv} }
@@ -554,7 +572,7 @@ async function renderRevelados(){
 
   const { data: perfis } = await sb.from("perfis").select("id,usuario");
   const { data: esp } = await sb.from("palpites_especiais").select("*");
-  const { data: todos } = await sb.from("palpites").select("*");
+  const todos = await buscarTodos("palpites");
 
   const nome = {}; (perfis||[]).forEach(p=>nome[p.id]=p.usuario);
   const espMap = {}; (esp||[]).forEach(e=>espMap[e.user_id]=e);
